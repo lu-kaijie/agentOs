@@ -36,6 +36,16 @@ bash scripts/verify_env.sh
 - 关键依赖是否可导入
 - Python 主版本是否符合当前阶段要求
 
+开发阶段的常用命令：
+
+```bash
+make status
+make run
+make exec
+make test
+make verify-env
+```
+
 ## 项目原则
 
 - 一步一步实现，每个阶段只引入少量新概念。

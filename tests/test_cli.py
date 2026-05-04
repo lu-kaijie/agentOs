@@ -22,3 +22,13 @@ def test_run_command_announces_runtime_shell():
 
     assert result.exit_code == 0
     assert "agentOs runtime skeleton is ready." in result.stdout
+
+
+def test_exec_command_uses_harness_boundary():
+    result = runner.invoke(app, ["exec", "pwd"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["exit_code"] == 0
+    assert payload["timed_out"] is False
+    assert payload["command"] == ["pwd"]

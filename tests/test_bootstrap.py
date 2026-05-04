@@ -15,3 +15,4 @@ def test_app_bootstrap_exposes_runtime_status():
     app = AgentOsApp.bootstrap()
 
     assert app.status()["runtime_status"] == "skeleton-ready"
+    assert app.status()["executor"] == "LocalCommandExecutor"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentos.config import Settings
+from agentos.harness.execution import LocalCommandExecutor
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
 
 
@@ -20,7 +21,8 @@ class AgentOsApp:
         """Load settings and prepare the runtime shell."""
 
         settings = Settings.load()
-        runtime = build_runtime(settings)
+        executor = LocalCommandExecutor()
+        runtime = build_runtime(settings, executor=executor)
         return cls(settings=settings, runtime=runtime)
 
     def status(self) -> dict[str, str]:

@@ -18,9 +18,9 @@
 
 ## 4. Harness Foundation
 
-- [ ] 4.1 Define the harness interfaces for command execution, execution results, and future approval hooks
-- [ ] 4.2 Implement a first local command runner that is intentionally narrow and easy to inspect
-- [ ] 4.3 Add tests that verify harness execution boundaries and result handling
+- [x] 4.1 Define the harness interfaces for command execution, execution results, and future approval hooks
+- [x] 4.2 Implement a first local command runner that is intentionally narrow and easy to inspect
+- [x] 4.3 Add tests that verify harness execution boundaries and result handling
 
 ## 5. LangGraph Runtime
 
