@@ -18,9 +18,9 @@
 
 ## 4. LangChain Tool Runtime
 
-- [ ] 4.1 Move the main coding tools to LangChain-native tool definitions and bindings
-- [ ] 4.2 Preserve harness boundaries, approval policy, workspace constraints, and structured persistence around the LangChain tool runtime
-- [ ] 4.3 Keep deterministic fallback execution only where necessary and cover that compatibility with tests
+- [x] 4.1 Move the main coding tools to LangChain-native tool definitions and bindings
+- [x] 4.2 Preserve harness boundaries, approval policy, workspace constraints, and structured persistence around the LangChain tool runtime
+- [x] 4.3 Keep deterministic fallback execution only where necessary and cover that compatibility with tests
 
 ## 5. Real Model Runtime Integration
 

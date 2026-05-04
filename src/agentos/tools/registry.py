@@ -1,32 +1,65 @@
-"""Structured tool registry and built-in coding tools."""
+"""LangChain-native structured tool runtime and registry."""
 
 from __future__ import annotations
 
-import json
 import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from langchain_core.tools import BaseTool, StructuredTool
+from pydantic import BaseModel, Field
+
 from agentos.harness.execution import CommandExecutor, ExecutionRequest
 from agentos.knowledge import KnowledgeLoader
-from agentos.tools.base import AgentTool
 from agentos.tools.models import ToolInvocation, ToolResult
 
 
 @dataclass(slots=True)
 class ToolContext:
-    """Context shared by registry-backed tools."""
+    """Context shared by LangChain-bound coding tools."""
 
     workspace_dir: Path
     executor: CommandExecutor
     knowledge_loader: KnowledgeLoader
 
 
-class ToolRegistry:
-    """Register and invoke structured coding-agent tools."""
+class ShellCommandArgs(BaseModel):
+    command: list[str] = Field(description="Command and argv list to execute.")
+    cwd: str = Field(description="Working directory for command execution.")
 
-    def __init__(self, tools: list[AgentTool]):
+
+class KnowledgeLoadArgs(BaseModel):
+    topic: str = Field(description="Knowledge topic to load from the knowledge directory.")
+
+
+class RepoSearchArgs(BaseModel):
+    pattern: str = Field(description="Plain-text pattern to search inside the workspace.")
+
+
+class FileReadArgs(BaseModel):
+    path: str = Field(description="Relative workspace path to read.")
+
+
+class FileWriteArgs(BaseModel):
+    path: str = Field(description="Relative workspace path to write.")
+    content: str = Field(description="Full file content to write.")
+
+
+class FilePatchArgs(BaseModel):
+    path: str = Field(description="Relative workspace path to patch.")
+    target: str = Field(description="Existing text to replace once.")
+    replacement: str = Field(description="Replacement text.")
+
+
+class TestRunArgs(BaseModel):
+    command: str = Field(description="Bounded test command string.")
+
+
+class ToolRegistry:
+    """Register and invoke LangChain-native coding tools."""
+
+    def __init__(self, tools: list[BaseTool]):
         self._tools = {tool.name: tool for tool in tools}
 
     def list_tools(self) -> list[dict[str, str]]:
@@ -35,186 +68,22 @@ class ToolRegistry:
             for tool in sorted(self._tools.values(), key=lambda item: item.name)
         ]
 
+    def get_tool(self, tool_name: str) -> BaseTool:
+        if tool_name not in self._tools:
+            raise KeyError(f"Tool '{tool_name}' is not registered")
+        return self._tools[tool_name]
+
+    def as_langchain_tools(self) -> list[BaseTool]:
+        return [self._tools[name] for name in sorted(self._tools)]
+
     def invoke(self, invocation: ToolInvocation) -> ToolResult:
-        if invocation.tool_name not in self._tools:
-            raise KeyError(f"Tool '{invocation.tool_name}' is not registered")
-        return self._tools[invocation.tool_name].run(invocation)
-
-
-class ShellCommandTool(AgentTool):
-    name = "shell_command"
-    description = "Run a shell-like command through the harness executor."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        command = [str(item) for item in invocation.arguments.get("command", [])]
-        cwd = str(invocation.arguments.get("cwd", str(self.context.workspace_dir)))
-        result = self.context.executor.run(ExecutionRequest(command=command, cwd=cwd))
-        summary = f"exit_code={result.exit_code} timed_out={result.timed_out}"
-        payload = {
-            "command": result.command,
-            "cwd": result.cwd,
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "timed_out": result.timed_out,
-        }
-        return ToolResult(tool_name=self.name, status="ok", summary=summary, payload=payload)
-
-
-class KnowledgeLoadTool(AgentTool):
-    name = "knowledge_load"
-    description = "Load a knowledge topic from the knowledge directory."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        topic = str(invocation.arguments.get("topic", ""))
-        message = self.context.knowledge_loader.load_topic(topic)
-        payload = {
-            "topic": message.additional_kwargs.get("topic", topic),
-            "source": message.additional_kwargs.get("source", ""),
-            "content": message.content,
-        }
-        return ToolResult(
-            tool_name=self.name,
-            status="ok",
-            summary=f"loaded topic '{topic}'",
-            payload=payload,
-        )
-
-
-class RepoSearchTool(AgentTool):
-    name = "repo_search"
-    description = "Search the repository with ripgrep."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        pattern = str(invocation.arguments.get("pattern", ""))
-        if not pattern:
-            raise ValueError("repo_search requires a non-empty pattern")
-        try:
-            result = self.context.executor.run(
-                ExecutionRequest(command=["rg", "-n", pattern, "."], cwd=str(self.context.workspace_dir))
-            )
-            payload = {
-                "pattern": pattern,
-                "engine": "rg",
-                "exit_code": result.exit_code,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "timed_out": result.timed_out,
-            }
-            summary = f"search pattern='{pattern}' exit_code={result.exit_code}"
-        except FileNotFoundError:
-            stdout = _search_workspace_without_rg(self.context.workspace_dir, pattern)
-            payload = {
-                "pattern": pattern,
-                "engine": "python",
-                "exit_code": 0 if stdout else 1,
-                "stdout": stdout,
-                "stderr": "",
-                "timed_out": False,
-            }
-            summary = f"search pattern='{pattern}' exit_code={payload['exit_code']}"
-        return ToolResult(tool_name=self.name, status="ok", summary=summary, payload=payload)
-
-
-class FileReadTool(AgentTool):
-    name = "file_read"
-    description = "Read one workspace file."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        path = _resolve_workspace_path(self.context.workspace_dir, str(invocation.arguments.get("path", "")))
-        content = path.read_text(encoding="utf-8")
-        payload = {"path": str(path), "content": content}
-        return ToolResult(tool_name=self.name, status="ok", summary=f"read '{path.name}'", payload=payload)
-
-
-class FileWriteTool(AgentTool):
-    name = "file_write"
-    description = "Write one workspace file."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        path = _resolve_workspace_path(self.context.workspace_dir, str(invocation.arguments.get("path", "")))
-        content = str(invocation.arguments.get("content", ""))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        payload = {"path": str(path), "bytes_written": len(content.encode("utf-8"))}
-        return ToolResult(tool_name=self.name, status="ok", summary=f"wrote '{path.name}'", payload=payload)
-
-
-class FilePatchTool(AgentTool):
-    name = "file_patch"
-    description = "Apply one bounded text replacement inside a workspace file."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        path = _resolve_workspace_path(self.context.workspace_dir, str(invocation.arguments.get("path", "")))
-        target = str(invocation.arguments.get("target", ""))
-        replacement = str(invocation.arguments.get("replacement", ""))
-        if not target:
-            raise ValueError("file_patch requires a non-empty target string")
-        content = path.read_text(encoding="utf-8")
-        replacement_count = content.count(target)
-        if replacement_count == 0:
-            raise ValueError(f"target text not found in '{path.name}'")
-        updated = content.replace(target, replacement, 1)
-        path.write_text(updated, encoding="utf-8")
-        payload = {
-            "path": str(path),
-            "target": target,
-            "replacement": replacement,
-            "replacement_count": replacement_count,
-        }
-        return ToolResult(
-            tool_name=self.name,
-            status="ok",
-            summary=f"patched '{path.name}'",
-            payload=payload,
-        )
-
-
-class TestRunTool(AgentTool):
-    name = "test_run"
-    description = "Run a bounded test command in the workspace."
-
-    def __init__(self, context: ToolContext):
-        self.context = context
-
-    def run(self, invocation: ToolInvocation) -> ToolResult:
-        command_text = str(invocation.arguments.get("command", "")).strip()
-        if not command_text:
-            raise ValueError("test_run requires a command string")
-        command = shlex.split(command_text)
-        if command and command[0] == "python":
-            command[0] = sys.executable
-        result = self.context.executor.run(
-            ExecutionRequest(command=command, cwd=str(self.context.workspace_dir))
-        )
-        payload = {
-            "command": command,
-            "cwd": result.cwd,
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "timed_out": result.timed_out,
-        }
-        summary = f"test command exit_code={result.exit_code}"
-        return ToolResult(tool_name=self.name, status="ok", summary=summary, payload=payload)
+        tool = self.get_tool(invocation.tool_name)
+        payload = tool.invoke(invocation.arguments)
+        if not isinstance(payload, dict):
+            payload = {"content": payload}
+        status = str(payload.pop("_status", "ok"))
+        summary = str(payload.pop("_summary", f"{tool.name} completed"))
+        return ToolResult(tool_name=tool.name, status=status, summary=summary, payload=payload)
 
 
 def build_default_tool_registry(
@@ -223,24 +92,164 @@ def build_default_tool_registry(
     executor: CommandExecutor,
     knowledge_loader: KnowledgeLoader,
 ) -> ToolRegistry:
-    """Create the built-in structured tool registry for this milestone."""
+    """Create the built-in LangChain tool runtime for this milestone."""
 
     context = ToolContext(
         workspace_dir=Path(workspace_dir).resolve(),
         executor=executor,
         knowledge_loader=knowledge_loader,
     )
-    return ToolRegistry(
-        [
-            ShellCommandTool(context),
-            KnowledgeLoadTool(context),
-            RepoSearchTool(context),
-            FileReadTool(context),
-            FileWriteTool(context),
-            FilePatchTool(context),
-            TestRunTool(context),
-        ]
-    )
+
+    def shell_command(command: list[str], cwd: str) -> dict[str, object]:
+        result = context.executor.run(ExecutionRequest(command=command, cwd=cwd))
+        return {
+            "_summary": f"exit_code={result.exit_code} timed_out={result.timed_out}",
+            "command": result.command,
+            "cwd": result.cwd,
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "timed_out": result.timed_out,
+        }
+
+    def knowledge_load(topic: str) -> dict[str, object]:
+        message = context.knowledge_loader.load_topic(topic)
+        return {
+            "_summary": f"loaded topic '{topic}'",
+            "topic": message.additional_kwargs.get("topic", topic),
+            "source": message.additional_kwargs.get("source", ""),
+            "content": message.content,
+        }
+
+    def repo_search(pattern: str) -> dict[str, object]:
+        if not pattern:
+            raise ValueError("repo_search requires a non-empty pattern")
+        try:
+            result = context.executor.run(
+                ExecutionRequest(command=["rg", "-n", pattern, "."], cwd=str(context.workspace_dir))
+            )
+            return {
+                "_summary": f"search pattern='{pattern}' exit_code={result.exit_code}",
+                "pattern": pattern,
+                "engine": "rg",
+                "exit_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "timed_out": result.timed_out,
+            }
+        except FileNotFoundError:
+            stdout = _search_workspace_without_rg(context.workspace_dir, pattern)
+            return {
+                "_summary": f"search pattern='{pattern}' exit_code={0 if stdout else 1}",
+                "pattern": pattern,
+                "engine": "python",
+                "exit_code": 0 if stdout else 1,
+                "stdout": stdout,
+                "stderr": "",
+                "timed_out": False,
+            }
+
+    def file_read(path: str) -> dict[str, object]:
+        resolved = _resolve_workspace_path(context.workspace_dir, path)
+        return {
+            "_summary": f"read '{resolved.name}'",
+            "path": str(resolved),
+            "content": resolved.read_text(encoding="utf-8"),
+        }
+
+    def file_write(path: str, content: str) -> dict[str, object]:
+        resolved = _resolve_workspace_path(context.workspace_dir, path)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(content, encoding="utf-8")
+        return {
+            "_summary": f"wrote '{resolved.name}'",
+            "path": str(resolved),
+            "bytes_written": len(content.encode("utf-8")),
+        }
+
+    def file_patch(path: str, target: str, replacement: str) -> dict[str, object]:
+        resolved = _resolve_workspace_path(context.workspace_dir, path)
+        if not target:
+            raise ValueError("file_patch requires a non-empty target string")
+        content = resolved.read_text(encoding="utf-8")
+        replacement_count = content.count(target)
+        if replacement_count == 0:
+            raise ValueError(f"target text not found in '{resolved.name}'")
+        updated = content.replace(target, replacement, 1)
+        resolved.write_text(updated, encoding="utf-8")
+        return {
+            "_summary": f"patched '{resolved.name}'",
+            "path": str(resolved),
+            "target": target,
+            "replacement": replacement,
+            "replacement_count": replacement_count,
+        }
+
+    def test_run(command: str) -> dict[str, object]:
+        command_text = command.strip()
+        if not command_text:
+            raise ValueError("test_run requires a command string")
+        argv = shlex.split(command_text)
+        if argv and argv[0] == "python":
+            argv[0] = sys.executable
+        result = context.executor.run(
+            ExecutionRequest(command=argv, cwd=str(context.workspace_dir))
+        )
+        return {
+            "_summary": f"test command exit_code={result.exit_code}",
+            "command": argv,
+            "cwd": result.cwd,
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "timed_out": result.timed_out,
+        }
+
+    tools = [
+        StructuredTool.from_function(
+            name="shell_command",
+            description="Run a shell-like command through the harness executor.",
+            func=shell_command,
+            args_schema=ShellCommandArgs,
+        ),
+        StructuredTool.from_function(
+            name="knowledge_load",
+            description="Load a knowledge topic from the knowledge directory.",
+            func=knowledge_load,
+            args_schema=KnowledgeLoadArgs,
+        ),
+        StructuredTool.from_function(
+            name="repo_search",
+            description="Search the repository with ripgrep or bounded fallback.",
+            func=repo_search,
+            args_schema=RepoSearchArgs,
+        ),
+        StructuredTool.from_function(
+            name="file_read",
+            description="Read one workspace file.",
+            func=file_read,
+            args_schema=FileReadArgs,
+        ),
+        StructuredTool.from_function(
+            name="file_write",
+            description="Write one workspace file.",
+            func=file_write,
+            args_schema=FileWriteArgs,
+        ),
+        StructuredTool.from_function(
+            name="file_patch",
+            description="Apply one bounded text replacement inside a workspace file.",
+            func=file_patch,
+            args_schema=FilePatchArgs,
+        ),
+        StructuredTool.from_function(
+            name="test_run",
+            description="Run a bounded test command in the workspace.",
+            func=test_run,
+            args_schema=TestRunArgs,
+        ),
+    ]
+    return ToolRegistry(tools)
 
 
 def _resolve_workspace_path(workspace_dir: Path, raw_path: str) -> Path:
