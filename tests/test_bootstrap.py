@@ -14,5 +14,5 @@ def test_settings_load_defaults():
 def test_app_bootstrap_exposes_runtime_status():
     app = AgentOsApp.bootstrap()
 
-    assert app.status()["runtime_status"] == "skeleton-ready"
+    assert app.status()["runtime_status"] == "langgraph-v1-ready"
     assert app.status()["executor"] == "LocalCommandExecutor"

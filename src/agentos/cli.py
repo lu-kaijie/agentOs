@@ -25,12 +25,13 @@ def status() -> None:
 
 
 @app.command("run")
-def run() -> None:
-    """Start the current milestone runtime shell."""
+def run(task: str = typer.Argument("describe current status")) -> None:
+    """Run the current LangGraph runtime with a task string."""
 
-    payload = AgentOsApp.bootstrap().status()
-    typer.echo("agentOs runtime skeleton is ready.")
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    application = AgentOsApp.bootstrap()
+    state = application.runtime.run_task(task)
+    typer.echo("agentOs LangGraph runtime executed.")
+    typer.echo(json.dumps(state, indent=2, sort_keys=True))
 
 
 @app.command("exec")

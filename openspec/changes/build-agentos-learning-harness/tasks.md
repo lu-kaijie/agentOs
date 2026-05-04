@@ -24,10 +24,10 @@
 
 ## 5. LangGraph Runtime
 
-- [ ] 5.1 Add the initial LangGraph state model and document the meaning of each state field
-- [ ] 5.2 Implement a minimal graph with separate model-decision and tool-execution stages
-- [ ] 5.3 Connect the graph runtime to the harness executor through a narrow adapter layer
-- [ ] 5.4 Add tests or demos that show at least one task flowing through the graph and tool loop
+- [x] 5.1 Add the initial LangGraph state model and document the meaning of each state field
+- [x] 5.2 Implement a minimal graph with separate model-decision and tool-execution stages
+- [x] 5.3 Connect the graph runtime to the harness executor through a narrow adapter layer
+- [x] 5.4 Add tests or demos that show at least one task flowing through the graph and tool loop
 
 ## 6. Task Control Plane
 

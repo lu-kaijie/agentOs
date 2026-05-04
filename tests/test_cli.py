@@ -13,15 +13,16 @@ def test_status_command_outputs_bootstrap_payload():
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["runtime_status"] == "skeleton-ready"
+    assert payload["runtime_status"] == "langgraph-v1-ready"
     assert payload["model_provider"] == "openai"
 
 
 def test_run_command_announces_runtime_shell():
-    result = runner.invoke(app, ["run"])
+    result = runner.invoke(app, ["run", "run: pwd"])
 
     assert result.exit_code == 0
-    assert "agentOs runtime skeleton is ready." in result.stdout
+    assert "agentOs LangGraph runtime executed." in result.stdout
+    assert "user_task" in result.stdout
 
 
 def test_exec_command_uses_harness_boundary():

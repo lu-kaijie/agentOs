@@ -110,6 +110,11 @@ make verify-env
 - 最小 graph loop
 - tool adapter
 
+当前阶段的最小运行约定：
+- 使用 `run: <command>` 形式触发 tool execution
+- 例如 `make run` 会通过 LangGraph 跑一个 `pwd` 示例
+- 非 `run:` 任务会停在 model step，并返回指导信息
+
 ### M5: Task Control Plane
 
 学习目标：
