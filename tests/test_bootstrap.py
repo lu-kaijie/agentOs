@@ -10,6 +10,8 @@ def test_settings_load_defaults():
     assert settings.tasks_dir.name == "tasks"
     assert settings.knowledge_dir.name == "knowledge"
     assert settings.context_dir.name == "context"
+    assert settings.background_jobs_dir.name == "background"
+    assert settings.workspaces_dir.name == "workspaces"
     assert settings.model_provider == "openai"
     assert settings.model_name == "gpt-4.1-mini"
 

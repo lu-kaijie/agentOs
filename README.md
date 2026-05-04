@@ -43,6 +43,10 @@ make status
 make run
 make run-knowledge
 make exec
+make bg-run
+make bg-list
+make workspace-create
+make workspace-list
 make task-list
 make knowledge-list
 make context-demo
@@ -188,6 +192,16 @@ PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "run: rm temp.txt" --
 - 后台执行路径
 - 状态回流机制
 - 隔离工作区设计
+
+当前阶段的最小体验命令：
+
+```bash
+make bg-run
+make bg-list
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli bg-status <job-id>
+make workspace-create
+make workspace-list
+```
 
 ### M9: Multi-Agent Coordination
 

@@ -68,6 +68,8 @@ class RuntimeBootstrap:
             "tasks_dir": str(self.settings.tasks_dir),
             "knowledge_dir": str(self.settings.knowledge_dir),
             "context_dir": str(self.settings.context_dir),
+            "background_jobs_dir": str(self.settings.background_jobs_dir),
+            "workspaces_dir": str(self.settings.workspaces_dir),
             "model_provider": self.settings.model_provider,
             "model_name": self.settings.model_name,
             "runtime_status": "langgraph-advanced-ready",

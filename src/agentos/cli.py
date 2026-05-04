@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 
 import typer
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -59,6 +60,53 @@ def exec_command(command: list[str] = typer.Argument(..., help="Command to execu
         "timed_out": result.timed_out,
     }
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("bg-run")
+def bg_run(
+    command: str = typer.Argument(..., help="Command string to execute in background."),
+    workspace: str = typer.Option("", "--workspace", help="Optional isolated workspace name."),
+) -> None:
+    """Launch a background command."""
+
+    application = AgentOsApp.bootstrap()
+    cwd = application.workspace_manager.resolve(workspace or None, str(application.settings.workspace_dir))
+    job = application.background_manager.run(command=shlex.split(command), cwd=cwd)
+    typer.echo(json.dumps(job.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("bg-status")
+def bg_status(job_id: str = typer.Argument(..., help="Background job id.")) -> None:
+    """Inspect one background job."""
+
+    application = AgentOsApp.bootstrap()
+    job = application.background_manager.get(job_id)
+    typer.echo(json.dumps(job.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("bg-list")
+def bg_list() -> None:
+    """List background jobs."""
+
+    application = AgentOsApp.bootstrap()
+    typer.echo(json.dumps(application.background_manager.list(), indent=2, sort_keys=True))
+
+
+@app.command("workspace-create")
+def workspace_create(name: str = typer.Argument(..., help="Workspace name.")) -> None:
+    """Create an isolated workspace directory."""
+
+    application = AgentOsApp.bootstrap()
+    payload = application.workspace_manager.create(name)
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("workspace-list")
+def workspace_list() -> None:
+    """List isolated workspaces."""
+
+    application = AgentOsApp.bootstrap()
+    typer.echo(json.dumps(application.workspace_manager.list(), indent=2, sort_keys=True))
 
 
 @app.command("task-create")

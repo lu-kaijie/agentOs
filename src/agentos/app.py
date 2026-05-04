@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from agentos.config import Settings
 from agentos.context import ContextManager
+from agentos.execution_control import BackgroundExecutionManager, WorkspaceManager
 from agentos.harness.execution import LocalCommandExecutor
 from agentos.knowledge import KnowledgeLoader
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
@@ -21,6 +22,8 @@ class AgentOsApp:
     task_manager: TaskManager
     knowledge_loader: KnowledgeLoader
     context_manager: ContextManager
+    background_manager: BackgroundExecutionManager
+    workspace_manager: WorkspaceManager
 
     @classmethod
     def bootstrap(cls) -> "AgentOsApp":
@@ -30,6 +33,8 @@ class AgentOsApp:
         executor = LocalCommandExecutor()
         knowledge_loader = KnowledgeLoader(settings.knowledge_dir)
         context_manager = ContextManager(settings.context_dir)
+        background_manager = BackgroundExecutionManager(settings.background_jobs_dir)
+        workspace_manager = WorkspaceManager(settings.workspaces_dir)
         runtime = build_runtime(settings, executor=executor, knowledge_loader=knowledge_loader)
         task_manager = TaskManager(settings.tasks_dir)
         return cls(
@@ -38,6 +43,8 @@ class AgentOsApp:
             task_manager=task_manager,
             knowledge_loader=knowledge_loader,
             context_manager=context_manager,
+            background_manager=background_manager,
+            workspace_manager=workspace_manager,
         )
 
     def status(self) -> dict[str, str]:

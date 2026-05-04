@@ -54,10 +54,10 @@
 
 ## 9. Async And Isolated Execution
 
-- [ ] 9.1 Add a background execution path for long-running commands or tool operations
-- [ ] 9.2 Add result notification or polling so background work can re-enter the main runtime cleanly
-- [ ] 9.3 Design isolated execution contexts for tasks that should not always share one mutable workspace
-- [ ] 9.4 Add lifecycle records for background and isolated execution state transitions
+- [x] 9.1 Add a background execution path for long-running commands or tool operations
+- [x] 9.2 Add result notification or polling so background work can re-enter the main runtime cleanly
+- [x] 9.3 Design isolated execution contexts for tasks that should not always share one mutable workspace
+- [x] 9.4 Add lifecycle records for background and isolated execution state transitions
 
 ## 10. Multi-Agent Coordination
 
