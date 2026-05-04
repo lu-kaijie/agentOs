@@ -1,7 +1,7 @@
 PYTHON := .venv-agentos/bin/python
 PYTEST := .venv-agentos/bin/pytest
 
-.PHONY: status run shell run-knowledge exec bg-run bg-list workspace-create workspace-list unit-list task-list knowledge-list context-demo test verify-env
+.PHONY: status run run-model shell shell-model run-knowledge exec bg-run bg-list workspace-create workspace-list unit-list task-list knowledge-list context-demo test verify-env
 
 status:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli status
@@ -9,8 +9,14 @@ status:
 run:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli run "run: pwd"
 
+run-model:
+	PYTHONPATH=src $(PYTHON) -m agentos.cli run "请读取 README.md，并用两句话总结这个项目当前是什么。" --model --session-id demo-model
+
 shell:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli shell --session-id demo-shell
+
+shell-model:
+	PYTHONPATH=src $(PYTHON) -m agentos.cli shell --session-id demo-model-shell
 
 run-knowledge:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli run "knowledge: langgraph-runtime"

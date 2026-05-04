@@ -6,7 +6,10 @@
 
 ## 当前状态
 
-当前仓库已经完成 `M0` 到 `M14`，已经结束第一条基础 change，并完成第二条 change 的主要代码实现。
+当前仓库已经完成 `M0` 到 `M14`，也已经完成后续三个关键演进阶段：
+- 第三个 change：session / tool / context / role / watch 能力
+- 第四个 change：常驻交互式 shell、LangChain-native tool runtime、真实模型主路径
+- 当前主线已经进入“可连续使用的 Claude Code 风格 agent shell 原型”阶段
 
 已完成：
 - OpenSpec proposal / design / specs / tasks
@@ -23,7 +26,14 @@
 - Delegated execution runtime
 - Explicit permission and approval policy
 
-当前得到的是一个“已经具备真实 runtime 原型形态的 agent/harness 学习型底座”，还不是完整的 Claude Code 级成品。下一条 change 会继续推进 session persistence、resume/watch、更完整工具体系、更强上下文工程和更连续的 CLI 体验。
+当前得到的不是 demo，也不是空壳，而是一个：
+- 基于 `LangChain / LangGraph`
+- 支持真实模型 API
+- 支持常驻交互式 CLI shell
+- 支持连续多轮 coding 任务推进
+- 支持工具调用、上下文管理、role workflow、session 持久化与恢复
+
+它仍然不是完整商业级 Claude Code 复刻，但已经是一个可跑、可连续交互、可执行常见 coding 场景的 agent shell 原型。
 
 ## Environment Setup
 
@@ -52,6 +62,9 @@ bash scripts/verify_env.sh
 ```bash
 make status
 make run
+make run-model
+make shell
+make shell-model
 make run-knowledge
 make exec
 make bg-run
@@ -73,20 +86,45 @@ make verify-env
 
 - [docs/second-change-milestones.md](/home/mi/agentOs/docs/second-change-milestones.md:1)
 
-第三条 change 的分阶段体验说明：
+当前主线最推荐的体验方式：
 
 ```bash
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli sessions
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli session-show <session-id>
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli resume <session-id>
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli watch <session-id>
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli unit-watch
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli tool-list
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli tool-run file_read --arg path=README.md
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "code: steps: read: README.md | write: notes.txt => demo | test: python -c print(321)" --session-id role-demo --max-iterations 5
+export OPENAI_API_KEY=...
+export OPENAI_BASE_URL=...
+
+make shell-model
 ```
 
-这一步得到的是一个“已经具备 session / tool / context / role / interactive CLI 骨架”的基本可用 agent 原型，但还没有接入真实模型 API，也还没有把 role/tool/context 三层完全抽象成 LangChain 风格运行时。
+进入 shell 后，直接输入自然语言任务，例如：
+
+```text
+请先阅读 README.md，然后总结当前项目状态
+搜索 tests 里和 context policy 相关的测试
+如果 README 里没有 shell-model 用法，补充一下并告诉我改了什么
+运行测试并汇报结果
+```
+
+如果你想体验单轮真实模型路径：
+
+```bash
+make run-model
+```
+
+如果你想体验显式 deterministic / legacy 路径：
+
+```bash
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "code: steps: read: README.md | write: notes.txt => demo | test: python -c print(321)" --session-id role-demo --max-iterations 5
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli session-show role-demo
+```
+
+里程碑级体验说明见：
+
+- [docs/milestones/v0.22.0.md](/home/mi/agentOs/docs/milestones/v0.22.0.md:1)
+- [docs/milestones/v0.23.0.md](/home/mi/agentOs/docs/milestones/v0.23.0.md:1)
+- [docs/milestones/v0.24.0.md](/home/mi/agentOs/docs/milestones/v0.24.0.md:1)
+- [docs/milestones/v0.25.0.md](/home/mi/agentOs/docs/milestones/v0.25.0.md:1)
+- [docs/milestones/v0.26.0.md](/home/mi/agentOs/docs/milestones/v0.26.0.md:1)
+- [docs/milestones/v0.27.0.md](/home/mi/agentOs/docs/milestones/v0.27.0.md:1)
 
 ## 项目原则
 

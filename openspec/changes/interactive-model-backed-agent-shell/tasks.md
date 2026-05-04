@@ -30,6 +30,6 @@
 
 ## 6. Integrated Agent Experience
 
-- [ ] 6.1 Update runtime integration so the shell can drive role agents, context-policy outputs, and LangChain-native tools without losing harness observability
-- [ ] 6.2 Ensure the shell can autonomously reuse existing session, tool, context, coordination, and role capabilities from one continuous workspace conversation
-- [ ] 6.3 Update repository docs and milestone notes so the acceptance standard is clearly “open one persistent window and keep working with the agent”
+- [x] 6.1 Update runtime integration so the shell can drive role agents, context-policy outputs, and LangChain-native tools without losing harness observability
+- [x] 6.2 Ensure the shell can autonomously reuse existing session, tool, context, coordination, and role capabilities from one continuous workspace conversation
+- [x] 6.3 Update repository docs and milestone notes so the acceptance standard is clearly “open one persistent window and keep working with the agent”
