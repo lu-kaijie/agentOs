@@ -163,6 +163,19 @@ class BackgroundExecutionManager:
             results.append(result)
         return results
 
+    def has_unconsumed_completed(self, session_id: str = "") -> bool:
+        """Return whether a session has completed background work waiting to re-enter runtime."""
+
+        for path in sorted(self.jobs_dir.glob("*/job.json")):
+            job = BackgroundJob.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            job = self._refresh(job)
+            if job.status != "completed" or job.consumed_by_runtime or job.exit_code is None:
+                continue
+            if session_id and job.session_id and job.session_id != session_id:
+                continue
+            return True
+        return False
+
     def _refresh(self, job: BackgroundJob) -> BackgroundJob:
         exit_code_path = self.jobs_dir / job.id / "exit_code.txt"
         if exit_code_path.exists():

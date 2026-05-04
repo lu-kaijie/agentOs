@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from agentos.config import Settings
@@ -99,13 +100,25 @@ class AgentOsApp:
         task: str = "",
         approve: bool = False,
         max_iterations: int = 5,
+        poll_iterations: int = 1,
+        poll_interval: float = 0.2,
     ) -> dict[str, object]:
+        last_session = self.session_manager.get_session(session_id)
+        if poll_iterations > 1:
+            for poll_index in range(poll_iterations):
+                if self.background_manager.has_unconsumed_completed(session_id):
+                    break
+                if poll_index < poll_iterations - 1:
+                    time.sleep(poll_interval)
         state_override, previous_task = self.session_manager.build_resume_state(session_id)
         next_task = task or previous_task or "describe current status"
-        return self.run_session_task(
+        state = self.run_session_task(
             next_task,
             session_id=session_id,
             approve=approve,
             max_iterations=max_iterations,
             state_override=state_override,
         )
+        state["resume_poll_iterations"] = poll_iterations
+        state["resume_from_loop_status"] = last_session.latest_loop_status
+        return state

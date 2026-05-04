@@ -300,6 +300,8 @@ def resume(
     task: str = typer.Argument("", help="Optional next task for the resumed session."),
     approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
     max_iterations: int = typer.Option(5, "--max-iterations", min=1, help="Bounded runtime loop limit."),
+    poll_iterations: int = typer.Option(1, "--poll-iterations", min=1, help="Maximum bounded poll cycles before resuming."),
+    poll_interval: float = typer.Option(0.2, "--poll-interval", min=0.1, help="Seconds to sleep between poll cycles."),
 ) -> None:
     """Resume a persisted runtime session."""
 
@@ -309,6 +311,8 @@ def resume(
         task=task,
         approve=approve,
         max_iterations=max_iterations,
+        poll_iterations=poll_iterations,
+        poll_interval=poll_interval,
     )
     typer.echo("agentOs resumed session.")
     typer.echo(json.dumps(state, indent=2, sort_keys=True))

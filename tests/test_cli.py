@@ -82,3 +82,70 @@ def test_resume_reuses_persisted_session_state(tmp_path, monkeypatch):
     assert resumed.exit_code == 0
     assert "agentOs resumed session." in resumed.stdout
     assert "say again" in resumed.stdout
+
+
+def test_resume_polls_and_consumes_background_result(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setenv("AGENTOS_BACKGROUND_DIR", str(tmp_path / "background"))
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("AGENTOS_KNOWLEDGE_DIR", str(tmp_path / "knowledge"))
+    knowledge_dir = tmp_path / "knowledge"
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    (knowledge_dir / "langgraph-runtime.md").write_text("# Runtime from watch", encoding="utf-8")
+
+    first = runner.invoke(app, ["run", "say hello", "--session-id", "poll-session"])
+    assert first.exit_code == 0
+
+    started = runner.invoke(
+        app,
+        [
+            "bg-run",
+            "python -c \"import time; time.sleep(0.2); print('knowledge: langgraph-runtime', end='')\"",
+            "--session-id",
+            "poll-session",
+        ],
+    )
+    assert started.exit_code == 0
+
+    resumed = runner.invoke(
+        app,
+        [
+            "resume",
+            "poll-session",
+            "--poll-iterations",
+            "20",
+            "--poll-interval",
+            "0.1",
+        ],
+    )
+
+    assert resumed.exit_code == 0
+    assert "agentOs resumed session." in resumed.stdout
+    assert "background_reentry" in resumed.stdout
+    assert "knowledge_execute" in resumed.stdout
+
+
+def test_session_show_reflects_replayed_progress_after_resume(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+
+    first = runner.invoke(
+        app,
+        ["run", "steps: say hello | say again", "--session-id", "replay-session", "--max-iterations", "1"],
+    )
+    assert first.exit_code == 0
+
+    before = runner.invoke(app, ["session-show", "replay-session"])
+    assert before.exit_code == 0
+    before_payload = json.loads(before.stdout)
+    assert before_payload["session"]["turn_count"] == 1
+    assert before_payload["latest_turn"]["state"]["pending_tasks"] == ["say again"]
+
+    resumed = runner.invoke(app, ["resume", "replay-session"])
+    assert resumed.exit_code == 0
+
+    after = runner.invoke(app, ["session-show", "replay-session"])
+    assert after.exit_code == 0
+    after_payload = json.loads(after.stdout)
+    assert after_payload["session"]["turn_count"] == 2
+    assert after_payload["latest_turn"]["state"]["loop_status"] == "completed"
+    assert after_payload["latest_turn"]["state"]["completed_tasks"] == ["say hello", "say again"]
