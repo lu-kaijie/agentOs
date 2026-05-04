@@ -91,3 +91,21 @@ class AgentOsApp:
             workspace_dir=str(self.settings.workspace_dir),
         )
         return state
+
+    def resume_session(
+        self,
+        session_id: str,
+        *,
+        task: str = "",
+        approve: bool = False,
+        max_iterations: int = 5,
+    ) -> dict[str, object]:
+        state_override, previous_task = self.session_manager.build_resume_state(session_id)
+        next_task = task or previous_task or "describe current status"
+        return self.run_session_task(
+            next_task,
+            session_id=session_id,
+            approve=approve,
+            max_iterations=max_iterations,
+            state_override=state_override,
+        )

@@ -1,7 +1,7 @@
 ## 1. Session Persistence And Replay
 
 - [x] 1.1 Persist runtime session state, step history, and task linkage in a stable on-disk structure
-- [ ] 1.2 Add commands or APIs to list sessions, inspect one session, and resume prior work
+- [x] 1.2 Add commands or APIs to list sessions, inspect one session, and resume prior work
 - [ ] 1.3 Add bounded session continuation flows so resumed sessions can consume newly available background results
 - [ ] 1.4 Add tests or demos that show an interrupted session being resumed and replayed
 

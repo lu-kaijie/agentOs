@@ -54,3 +54,31 @@ def test_run_command_persists_session_and_lists_it(tmp_path, monkeypatch):
     payload = json.loads(sessions_result.stdout)
     assert payload["total"] == 1
     assert payload["sessions"][0]["id"] == "demo-session"
+
+
+def test_session_show_returns_latest_turn(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+
+    runner.invoke(app, ["run", "run: pwd", "--session-id", "demo-session"])
+    result = runner.invoke(app, ["session-show", "demo-session"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["session"]["id"] == "demo-session"
+    assert payload["latest_turn"]["user_task"] == "run: pwd"
+
+
+def test_resume_reuses_persisted_session_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+
+    first = runner.invoke(
+        app,
+        ["run", "steps: say hello | say again", "--session-id", "resume-session", "--max-iterations", "1"],
+    )
+    assert first.exit_code == 0
+
+    resumed = runner.invoke(app, ["resume", "resume-session"])
+
+    assert resumed.exit_code == 0
+    assert "agentOs resumed session." in resumed.stdout
+    assert "say again" in resumed.stdout

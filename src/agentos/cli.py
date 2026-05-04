@@ -282,6 +282,38 @@ def sessions() -> None:
     typer.echo(json.dumps(application.session_manager.summary(), indent=2, sort_keys=True))
 
 
+@app.command("session-show")
+def session_show(session_id: str = typer.Argument(..., help="Persisted session id.")) -> None:
+    """Show one persisted session and its latest recorded turn."""
+
+    application = AgentOsApp.bootstrap()
+    payload = {
+        "session": application.session_manager.get_session(session_id).to_dict(),
+        "latest_turn": application.session_manager.load_latest_turn(session_id),
+    }
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("resume")
+def resume(
+    session_id: str = typer.Argument(..., help="Persisted session id."),
+    task: str = typer.Argument("", help="Optional next task for the resumed session."),
+    approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
+    max_iterations: int = typer.Option(5, "--max-iterations", min=1, help="Bounded runtime loop limit."),
+) -> None:
+    """Resume a persisted runtime session."""
+
+    application = AgentOsApp.bootstrap()
+    state = application.resume_session(
+        session_id,
+        task=task,
+        approve=approve,
+        max_iterations=max_iterations,
+    )
+    typer.echo("agentOs resumed session.")
+    typer.echo(json.dumps(state, indent=2, sort_keys=True))
+
+
 def main() -> None:
     """Run the CLI app."""
 
