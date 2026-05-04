@@ -12,9 +12,9 @@
 
 ## 3. Project Skeleton
 
-- [ ] 3.1 Create the initial Python package layout for runtime, harness, CLI entrypoint, and shared configuration
-- [ ] 3.2 Add a minimal CLI command that loads configuration and starts the project entrypoint without implementing full agent behavior
-- [ ] 3.3 Add tests or smoke checks that validate the skeleton imports and entrypoint wiring
+- [x] 3.1 Create the initial Python package layout for runtime, harness, CLI entrypoint, and shared configuration
+- [x] 3.2 Add a minimal CLI command that loads configuration and starts the project entrypoint without implementing full agent behavior
+- [x] 3.3 Add tests or smoke checks that validate the skeleton imports and entrypoint wiring
 
 ## 4. Harness Foundation
 
