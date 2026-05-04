@@ -10,6 +10,7 @@ from agentos.context import ContextManager
 from agentos.execution_control import BackgroundExecutionManager, WorkspaceManager
 from agentos.harness.execution import LocalCommandExecutor
 from agentos.knowledge import KnowledgeLoader
+from agentos.policy import CommandApprovalPolicy
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
 from agentos.tasks import TaskManager
 
@@ -38,11 +39,13 @@ class AgentOsApp:
         background_manager = BackgroundExecutionManager(settings.background_jobs_dir)
         workspace_manager = WorkspaceManager(settings.workspaces_dir)
         coordination_manager = CoordinationManager(settings.coordination_dir)
+        approval_policy = CommandApprovalPolicy()
         runtime = build_runtime(
             settings,
             executor=executor,
             knowledge_loader=knowledge_loader,
             background_manager=background_manager,
+            approval_policy=approval_policy,
         )
         task_manager = TaskManager(settings.tasks_dir)
         return cls(

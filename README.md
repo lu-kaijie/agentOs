@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-当前仓库已经完成 `M0` 到 `M9`，处于第一条基础 change 的收尾阶段。
+当前仓库已经完成 `M0` 到 `M14`，已经结束第一条基础 change，并完成第二条 change 的主要代码实现。
 
 已完成：
 - OpenSpec proposal / design / specs / tasks
@@ -18,8 +18,12 @@
 - Advanced LangChain / LangGraph routing
 - Async and isolated execution
 - Multi-agent coordination control plane
+- Resumable runtime loop
+- Background result re-entry
+- Delegated execution runtime
+- Explicit permission and approval policy
 
-当前得到的是一个“具备主要核心部件的 agent/harness 学习型底座”，还不是完整的 Claude Code 级成品。后续新的 change 会继续推进真实 loop、后台结果回流、真实 delegated execution、权限体系和更强的可用性。
+当前得到的是一个“已经具备真实 runtime 原型形态的 agent/harness 学习型底座”，还不是完整的 Claude Code 级成品。下一条 change 会继续推进 session persistence、resume/watch、更完整工具体系、更强上下文工程和更连续的 CLI 体验。
 
 ## Environment Setup
 
@@ -61,6 +65,10 @@ make context-demo
 make test
 make verify-env
 ```
+
+第二条 change 的分阶段体验说明见：
+
+- [docs/second-change-milestones.md](/home/mi/agentOs/docs/second-change-milestones.md:1)
 
 ## 项目原则
 
@@ -247,6 +255,50 @@ make unit-list
 - 生成态目录如 `.agentos/` 不进入提交
 - milestone tag 与代码状态一致
 
+### M11: Resumable Runtime Loop
+
+学习目标：
+- 理解 LangGraph 如何从单次图演进成可续跑 loop
+- 学会为 loop 增加边界与可观察 trace
+
+预期产出：
+- `pending_tasks` / `completed_tasks`
+- `iteration_count` / `loop_status`
+- `--max-iterations` 控制
+
+### M12: Background Result Re-entry
+
+学习目标：
+- 理解后台结果如何重新进入 runtime state
+- 理解为什么先做“启动时回收”的异步回流形态
+
+预期产出：
+- completed background job 扫描与消费
+- `background_result:<job_id>` synthetic step
+- follow-up step 派生
+
+### M13: Delegated Execution Runtime
+
+学习目标：
+- 理解 coordination record 如何接成 bounded execution flow
+- 理解 delegated execution 怎样和 task/workspace 状态集成
+
+预期产出：
+- 可执行 work unit
+- `unit-exec` CLI
+- task/workspace 回写
+
+### M14: Permission And Approval Policy
+
+学习目标：
+- 理解为什么 approval 应独立成 policy layer
+- 学会把安全边界做成 inspectable state
+
+预期产出：
+- `CommandApprovalPolicy`
+- policy rule / reason / risk level
+- approval-driven tests
+
 ## Tag Convention
 
 每个稳定 milestone 完成后打一个 Git tag，格式如下：
@@ -258,6 +310,10 @@ v0.<milestone>.<revision>
 当前建议：
 - `v0.0.0`：仓库初始化完成
 - `v0.1.0`：环境基础完成
+- `v0.11.0`：可续跑 runtime loop
+- `v0.12.0`：后台结果回流
+- `v0.13.0`：delegated execution
+- `v0.14.0`：approval policy 与第二个 change 收尾
 - `v0.2.0`：项目骨架完成
 - `v0.3.0`：harness foundation 完成
 - `v0.4.0`：LangGraph runtime v1 完成

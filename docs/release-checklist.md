@@ -41,3 +41,8 @@ A milestone is ready to tag only when all of the following are true:
 - `v0.7.0` Advanced LangChain/LangGraph routing
 - `v0.8.0` Async and isolated execution
 - `v0.9.0` Multi-agent coordination control plane
+- `v0.10.0` First change wrap-up
+- `v0.11.0` Resumable runtime loop
+- `v0.12.0` Background result re-entry
+- `v0.13.0` Delegated execution runtime
+- `v0.14.0` Permission and approval policy

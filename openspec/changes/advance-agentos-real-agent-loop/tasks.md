@@ -19,12 +19,12 @@
 
 ## 4. Permission Policy
 
-- [ ] 4.1 Extract command approval logic into an explicit policy layer
-- [ ] 4.2 Add inspectable policy outputs so approval decisions explain why a command was gated or allowed
-- [ ] 4.3 Add tests that verify policy-driven approval behavior
+- [x] 4.1 Extract command approval logic into an explicit policy layer
+- [x] 4.2 Add inspectable policy outputs so approval decisions explain why a command was gated or allowed
+- [x] 4.3 Add tests that verify policy-driven approval behavior
 
 ## 5. Documentation And Release Flow
 
-- [ ] 5.1 Add milestone notes and demo commands for the second change so each sub-stage remains teachable
-- [ ] 5.2 Update repository docs so the project status reflects the new phase after each stable checkpoint
-- [ ] 5.3 Tag and publish each stable checkpoint as the second change progresses
+- [x] 5.1 Add milestone notes and demo commands for the second change so each sub-stage remains teachable
+- [x] 5.2 Update repository docs so the project status reflects the new phase after each stable checkpoint
+- [x] 5.3 Tag and publish each stable checkpoint as the second change progresses

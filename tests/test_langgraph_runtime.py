@@ -22,6 +22,7 @@ def test_runtime_runs_tool_enabled_task():
     assert "tool_execute" in state["execution_trace"]
     assert "finalize_iteration" in state["execution_trace"]
     assert state["decision"]["action"] == "run_command"
+    assert state["approval_policy"]["matched_rule"] == "safe-command"
     assert state["iteration_count"] == 1
     assert state["loop_status"] == "completed"
 
@@ -52,7 +53,10 @@ def test_runtime_requires_approval_for_dangerous_command():
     approved = app.runtime.run_task("run: rm temp.txt", approved=True)
 
     assert "Approval required" in blocked["final_output"]
+    assert "Policy reason:" in blocked["final_output"]
     assert "approval_gate" in blocked["execution_trace"]
+    assert blocked["approval_policy"]["matched_rule"] == "destructive-command"
+    assert blocked["approval_policy"]["risk_level"] == "high"
     assert approved["decision"]["requires_approval"] is True
 
 

@@ -16,6 +16,7 @@ from agentos.config import Settings
 from agentos.execution_control import BackgroundExecutionManager
 from agentos.harness.execution import CommandExecutor, ExecutionRequest
 from agentos.knowledge import KnowledgeLoader
+from agentos.policy import CommandApprovalPolicy
 
 
 class RuntimeDecision(BaseModel):
@@ -43,6 +44,7 @@ class AgentGraphState(TypedDict):
     - background_results: completed async results waiting to influence runtime
     - consumed_background_jobs: background jobs already consumed in this session
     - next_pending_tasks: optional queue override produced by a node before finalize
+    - approval_policy: inspectable approval policy output for command execution
     - last_result: summarized tool execution result for the current run
     - final_output: the final assistant-facing text
     - loaded_knowledge: knowledge content loaded on demand
@@ -62,6 +64,7 @@ class AgentGraphState(TypedDict):
     background_results: list[dict[str, object]]
     consumed_background_jobs: list[str]
     next_pending_tasks: list[str]
+    approval_policy: dict[str, object]
     last_result: str
     final_output: str
     loaded_knowledge: str
@@ -80,6 +83,7 @@ class RuntimeBootstrap:
     executor: CommandExecutor
     knowledge_loader: KnowledgeLoader
     background_manager: BackgroundExecutionManager
+    approval_policy: CommandApprovalPolicy
     graph: object
 
     def summary(self) -> dict[str, str]:
@@ -119,6 +123,7 @@ class RuntimeBootstrap:
             "background_results": [],
             "consumed_background_jobs": [],
             "next_pending_tasks": [],
+            "approval_policy": {},
             "last_result": "",
             "final_output": "",
             "loaded_knowledge": "",
@@ -139,6 +144,7 @@ def _build_graph(
     executor: CommandExecutor,
     knowledge_loader: KnowledgeLoader,
     background_manager: BackgroundExecutionManager,
+    approval_policy: CommandApprovalPolicy,
 ):
     """Build the advanced LangGraph runtime."""
 
@@ -162,11 +168,17 @@ def _build_graph(
             format_instructions=decision_parser.get_format_instructions(),
         )
         raw_decision = _decide_from_task(active_task)
+        policy_output: dict[str, object] = {}
+        if raw_decision["action"] == "run_command":
+            policy_decision = approval_policy.evaluate(list(raw_decision["command"]))
+            raw_decision["requires_approval"] = policy_decision.requires_approval
+            policy_output = policy_decision.to_dict()
         decision = decision_parser.parse(json.dumps(raw_decision))
         return {
             **state,
             "active_task": active_task,
             "decision": decision.model_dump(),
+            "approval_policy": policy_output,
             "final_output": "",
             "execution_trace": state["execution_trace"]
             + [
@@ -175,6 +187,11 @@ def _build_graph(
                 f"active_task={active_task}",
                 f"prompt_messages={len(prompt_messages)}",
                 f"action={decision.action}",
+                (
+                    f"approval_rule={policy_output.get('matched_rule', 'n/a')}"
+                    if policy_output
+                    else "approval_rule=n/a"
+                ),
             ],
             "loop_status": "decision_ready",
         }
@@ -216,6 +233,7 @@ def _build_graph(
             "final_output": (
                 f"Approval required before executing command for step "
                 f"`{state['active_task']}`: {decision.command}. "
+                f"Policy reason: {state['approval_policy'].get('reason', 'unknown')}. "
                 "Re-run with --approve to continue."
             ),
             "execution_trace": state["execution_trace"]
@@ -435,13 +453,12 @@ def _decide_from_task(user_task: str) -> dict[str, object]:
     if user_task.startswith("run:"):
         command_text = user_task.split(":", 1)[1].strip()
         command = command_text.split() if command_text else []
-        dangerous = any(token in {"rm", "mv", "sudo"} for token in command)
         return {
             "action": "run_command",
             "topic": "",
             "response": "",
             "command": command,
-            "requires_approval": dangerous,
+            "requires_approval": False,
         }
 
     return {
@@ -461,14 +478,16 @@ def build_runtime(
     executor: CommandExecutor,
     knowledge_loader: KnowledgeLoader,
     background_manager: BackgroundExecutionManager,
+    approval_policy: CommandApprovalPolicy,
 ) -> RuntimeBootstrap:
     """Build the advanced LangGraph runtime shell."""
 
-    graph = _build_graph(settings, executor, knowledge_loader, background_manager)
+    graph = _build_graph(settings, executor, knowledge_loader, background_manager, approval_policy)
     return RuntimeBootstrap(
         settings=settings,
         executor=executor,
         knowledge_loader=knowledge_loader,
         background_manager=background_manager,
+        approval_policy=approval_policy,
         graph=graph,
     )
