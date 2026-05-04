@@ -50,6 +50,26 @@ v0.<milestone>.<revision>
 - 当前阶段具备基本验证方式
 - 仓库状态适合公开展示
 
+## Milestone 完成标准
+
+每个 milestone 至少要满足：
+- 新能力已经有代码实现，而不只是设计说明
+- 至少有一条命令或测试链路能稳定演示该能力
+- OpenSpec 任务勾选状态与仓库实际状态一致
+- README 中能看出该阶段是什么、怎么体验
+- 仓库可以在这一点打 tag 并长期保留
+
+## Release Checklist
+
+发布前至少检查：
+- `make test`
+- `git status`
+- `.agentos/` 等本地生成态未被加入版本控制
+- README / CONTRIBUTING / OpenSpec 任务状态同步
+- tag 名称与当前 milestone 一致
+
+详细检查项见 [docs/release-checklist.md](/home/mi/agentOs/docs/release-checklist.md:1)。
+
 ## 当前重点
 
 当前阶段优先保证：
@@ -57,3 +77,4 @@ v0.<milestone>.<revision>
 - 环境可复现
 - runtime / harness / control plane 分层明确
 - LangChain / LangGraph 的引入能逐步覆盖更多真实能力
+- milestone 收尾时，代码、文档和 tag 状态保持一致

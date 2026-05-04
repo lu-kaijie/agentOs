@@ -6,13 +6,20 @@
 
 ## 当前状态
 
-当前仓库处于第 0 阶段：仓库初始化与实施规划。
+当前仓库已经完成 `M0` 到 `M9`，处于第一条基础 change 的收尾阶段。
 
 已完成：
 - OpenSpec proposal / design / specs / tasks
-- 第一版仓库公开规范
+- 仓库公开规范与版本节奏
+- Harness foundation
+- LangGraph runtime v1
+- Task control plane
+- Context and knowledge management
+- Advanced LangChain / LangGraph routing
+- Async and isolated execution
+- Multi-agent coordination control plane
 
-接下来会按 milestone 小步推进，不会直接跳到完整实现。
+当前得到的是一个“具备主要核心部件的 agent/harness 学习型底座”，还不是完整的 Claude Code 级成品。后续新的 change 会继续推进真实 loop、后台结果回流、真实 delegated execution、权限体系和更强的可用性。
 
 ## Environment Setup
 
@@ -234,6 +241,12 @@ make unit-list
 - release checklist
 - 文档一致性检查
 
+当前阶段的收尾要求：
+- `make test` 通过
+- 体验命令与 README 保持一致
+- 生成态目录如 `.agentos/` 不进入提交
+- milestone tag 与代码状态一致
+
 ## Tag Convention
 
 每个稳定 milestone 完成后打一个 Git tag，格式如下：
@@ -248,20 +261,41 @@ v0.<milestone>.<revision>
 - `v0.2.0`：项目骨架完成
 - `v0.3.0`：harness foundation 完成
 - `v0.4.0`：LangGraph runtime v1 完成
+- `v0.5.0`：task control plane 完成
+- `v0.6.0`：context and knowledge management 完成
+- `v0.7.0`：advanced LangChain / LangGraph routing 完成
+- `v0.8.0`：async and isolated execution 完成
+- `v0.9.0`：multi-agent coordination 完成
 
 规则：
 - 只有 milestone 到达稳定停止点时才打 tag
 - 中间零碎提交不打 tag
 - 若同一 milestone 需要修正文档或小修复，可递增 patch 版本
 
-## 近期实施顺序
+## Milestone Completion Criteria
 
-当前优先级：
-1. 仓库基础文件
-2. Python 虚拟环境与锁版本依赖
-3. 最小项目骨架
-4. 第一版 harness
-5. 第一版 LangGraph runtime
+每个 milestone 要满足以下条件，才算到达稳定停止点：
+
+- 该阶段的主学习目标已经体现在代码中，而不是只存在于说明里
+- 至少有一条 CLI 或测试链路可以演示新能力
+- README 中有对应阶段的体验命令或说明
+- `openspec` 任务状态与实现状态一致
+- 仓库可以在这一点上停止并打 tag，而不会留下隐含的补丁工作
+
+## Release Hygiene
+
+- 里程碑发布前运行：`make test`
+- 检查本地生成态目录如 `.agentos/` 没有被纳入提交
+- 按 [docs/release-checklist.md](/home/mi/agentOs/docs/release-checklist.md:1) 完成发布检查
+
+## 下一步方向
+
+这条基础 change 收尾后，更适合进入新 change 的方向包括：
+1. 让 runtime 进入真正的 agent loop，而不是当前的单次有向流程
+2. 让后台任务结果真正重新喂回 graph
+3. 把 coordination control plane 接成真实 delegated execution
+4. 引入更完整的权限体系与人审流程
+5. 增加更接近真实 coding agent 的可用性层
 
 ## 说明
 

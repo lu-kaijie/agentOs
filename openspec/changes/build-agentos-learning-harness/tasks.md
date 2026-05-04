@@ -68,6 +68,6 @@
 
 ## 11. Milestone Discipline
 
-- [ ] 11.1 Document the expected completion criteria for each milestone so work can stop cleanly between steps
-- [ ] 11.2 Add a lightweight release checklist for tagging and publishing each stable checkpoint
-- [ ] 11.3 Review the repository documentation to ensure it accurately reflects current scope and limitations at every milestone
+- [x] 11.1 Document the expected completion criteria for each milestone so work can stop cleanly between steps
+- [x] 11.2 Add a lightweight release checklist for tagging and publishing each stable checkpoint
+- [x] 11.3 Review the repository documentation to ensure it accurately reflects current scope and limitations at every milestone

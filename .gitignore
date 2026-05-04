@@ -38,3 +38,6 @@ Thumbs.db
 *.log
 tmp/
 temp/
+
+# Local runtime state
+.agentos/
