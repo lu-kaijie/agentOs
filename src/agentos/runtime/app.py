@@ -34,21 +34,35 @@ class AgentGraphState(TypedDict):
 
     Fields:
     - user_task: the task given to the runtime
+    - pending_tasks: queued runtime steps to process
+    - active_task: the current step being processed
+    - completed_tasks: ordered list of completed steps
+    - step_outputs: ordered list of outputs emitted by each completed step
     - decision: structured routing result
     - last_result: summarized tool execution result for the current run
     - final_output: the final assistant-facing text
     - loaded_knowledge: knowledge content loaded on demand
     - execution_trace: ordered trace of visited runtime stages
     - approved: whether command execution has been approved
+    - iteration_count: number of completed loop iterations
+    - max_iterations: bounded loop limit
+    - loop_status: human-readable loop state
     """
 
     user_task: str
+    pending_tasks: list[str]
+    active_task: str
+    completed_tasks: list[str]
+    step_outputs: list[str]
     decision: dict[str, object]
     last_result: str
     final_output: str
     loaded_knowledge: str
     execution_trace: list[str]
     approved: bool
+    iteration_count: int
+    max_iterations: int
+    loop_status: str
 
 
 @dataclass(slots=True)
@@ -83,17 +97,25 @@ class RuntimeBootstrap:
         *,
         session_id: str = "default",
         approved: bool = False,
+        max_iterations: int = 5,
     ) -> AgentGraphState:
         """Execute a task through the LangGraph workflow."""
 
         initial_state: AgentGraphState = {
             "user_task": user_task,
+            "pending_tasks": [],
+            "active_task": "",
+            "completed_tasks": [],
+            "step_outputs": [],
             "decision": {},
             "last_result": "",
             "final_output": "",
             "loaded_knowledge": "",
             "execution_trace": [],
             "approved": approved,
+            "iteration_count": 0,
+            "max_iterations": max_iterations,
+            "loop_status": "initialized",
         }
         return self.graph.invoke(
             initial_state,
@@ -122,22 +144,27 @@ def _build_graph(
     )
 
     def model_decide(state: AgentGraphState) -> AgentGraphState:
+        active_task = state["pending_tasks"][0]
         prompt_messages = decision_prompt.format_messages(
-            task=state["user_task"],
+            task=active_task,
             format_instructions=decision_parser.get_format_instructions(),
         )
-        raw_decision = _decide_from_task(state["user_task"])
+        raw_decision = _decide_from_task(active_task)
         decision = decision_parser.parse(json.dumps(raw_decision))
         return {
             **state,
+            "active_task": active_task,
             "decision": decision.model_dump(),
             "final_output": "",
             "execution_trace": state["execution_trace"]
             + [
                 "model_decide",
+                f"iteration={state['iteration_count'] + 1}",
+                f"active_task={active_task}",
                 f"prompt_messages={len(prompt_messages)}",
                 f"action={decision.action}",
             ],
+            "loop_status": "decision_ready",
         }
 
     def approval_gate(state: AgentGraphState) -> AgentGraphState:
@@ -145,10 +172,16 @@ def _build_graph(
         return {
             **state,
             "final_output": (
-                f"Approval required before executing command: {decision.command}. "
+                f"Approval required before executing command for step "
+                f"`{state['active_task']}`: {decision.command}. "
                 "Re-run with --approve to continue."
             ),
-            "execution_trace": state["execution_trace"] + ["approval_gate"],
+            "execution_trace": state["execution_trace"]
+            + [
+                "approval_gate",
+                f"loop_stop=approval_required iteration={state['iteration_count'] + 1}",
+            ],
+            "loop_status": "waiting_approval",
         }
 
     def tool_execute(state: AgentGraphState) -> AgentGraphState:
@@ -168,6 +201,7 @@ def _build_graph(
             "last_result": last_result,
             "final_output": final_output,
             "execution_trace": state["execution_trace"] + ["tool_execute"],
+            "loop_status": "step_executed",
         }
 
     def knowledge_execute(state: AgentGraphState) -> AgentGraphState:
@@ -178,6 +212,7 @@ def _build_graph(
             "loaded_knowledge": message.content,
             "final_output": message.content,
             "execution_trace": state["execution_trace"] + ["knowledge_execute"],
+            "loop_status": "step_executed",
         }
 
     def respond_directly(state: AgentGraphState) -> AgentGraphState:
@@ -186,6 +221,7 @@ def _build_graph(
             **state,
             "final_output": decision.response,
             "execution_trace": state["execution_trace"] + ["respond_directly"],
+            "loop_status": "step_executed",
         }
 
     def route_after_model(state: AgentGraphState) -> str:
@@ -198,19 +234,103 @@ def _build_graph(
             return "tool_execute"
         return "respond_directly"
 
+    def initialize_loop(state: AgentGraphState) -> AgentGraphState:
+        pending_tasks = state["pending_tasks"] or _expand_user_task(state["user_task"])
+        return {
+            **state,
+            "pending_tasks": pending_tasks,
+            "execution_trace": state["execution_trace"]
+            + [
+                "initialize_loop",
+                f"planned_steps={len(pending_tasks)}",
+                f"max_iterations={state['max_iterations']}",
+            ],
+            "loop_status": "ready",
+        }
+
+    def finalize_iteration(state: AgentGraphState) -> AgentGraphState:
+        remaining_tasks = state["pending_tasks"][1:]
+        step_outputs = state["step_outputs"] + [state["final_output"]]
+        completed_tasks = state["completed_tasks"] + [state["active_task"]]
+        iteration_count = state["iteration_count"] + 1
+        final_output = _compose_final_output(step_outputs)
+        loop_status = _derive_loop_status(
+            remaining_tasks=remaining_tasks,
+            iteration_count=iteration_count,
+            max_iterations=state["max_iterations"],
+        )
+        return {
+            **state,
+            "pending_tasks": remaining_tasks,
+            "completed_tasks": completed_tasks,
+            "step_outputs": step_outputs,
+            "final_output": final_output,
+            "iteration_count": iteration_count,
+            "execution_trace": state["execution_trace"]
+            + [
+                "finalize_iteration",
+                f"completed={state['active_task']}",
+                f"remaining_steps={len(remaining_tasks)}",
+                f"loop_status={loop_status}",
+            ],
+            "loop_status": loop_status,
+        }
+
+    def route_after_finalize(state: AgentGraphState) -> str:
+        if state["pending_tasks"] and state["iteration_count"] < state["max_iterations"]:
+            return "model_decide"
+        return END
+
     graph_builder = StateGraph(AgentGraphState)
+    graph_builder.add_node("initialize_loop", initialize_loop)
     graph_builder.add_node("model_decide", model_decide)
     graph_builder.add_node("approval_gate", approval_gate)
     graph_builder.add_node("tool_execute", tool_execute)
     graph_builder.add_node("knowledge_execute", knowledge_execute)
     graph_builder.add_node("respond_directly", respond_directly)
-    graph_builder.add_edge(START, "model_decide")
+    graph_builder.add_node("finalize_iteration", finalize_iteration)
+    graph_builder.add_edge(START, "initialize_loop")
+    graph_builder.add_edge("initialize_loop", "model_decide")
     graph_builder.add_conditional_edges("model_decide", route_after_model)
     graph_builder.add_edge("approval_gate", END)
-    graph_builder.add_edge("tool_execute", END)
-    graph_builder.add_edge("knowledge_execute", END)
-    graph_builder.add_edge("respond_directly", END)
+    graph_builder.add_edge("tool_execute", "finalize_iteration")
+    graph_builder.add_edge("knowledge_execute", "finalize_iteration")
+    graph_builder.add_edge("respond_directly", "finalize_iteration")
+    graph_builder.add_conditional_edges("finalize_iteration", route_after_finalize)
     return graph_builder.compile(checkpointer=MemorySaver())
+
+
+def _expand_user_task(user_task: str) -> list[str]:
+    """Expand a user task into explicit loop steps when requested."""
+
+    if user_task.startswith("steps:"):
+        raw_steps = user_task.split(":", 1)[1]
+        steps = [item.strip() for item in raw_steps.split("|") if item.strip()]
+        if steps:
+            return steps
+    return [user_task]
+
+
+def _compose_final_output(step_outputs: list[str]) -> str:
+    """Build a stable user-facing output across loop iterations."""
+
+    if not step_outputs:
+        return ""
+    if len(step_outputs) == 1:
+        return step_outputs[0]
+    return "\n\n".join(
+        f"[step {index}] {output}" for index, output in enumerate(step_outputs, start=1)
+    )
+
+
+def _derive_loop_status(*, remaining_tasks: list[str], iteration_count: int, max_iterations: int) -> str:
+    """Return an inspectable loop status string."""
+
+    if remaining_tasks and iteration_count >= max_iterations:
+        return "stopped:max_iterations"
+    if remaining_tasks:
+        return "continue"
+    return "completed"
 
 
 def _decide_from_task(user_task: str) -> dict[str, object]:

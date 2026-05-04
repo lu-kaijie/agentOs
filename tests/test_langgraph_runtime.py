@@ -10,7 +10,10 @@ def test_runtime_runs_tool_enabled_task():
     assert state["final_output"].endswith("agentOs")
     assert "exit_code=0" in state["last_result"]
     assert "tool_execute" in state["execution_trace"]
+    assert "finalize_iteration" in state["execution_trace"]
     assert state["decision"]["action"] == "run_command"
+    assert state["iteration_count"] == 1
+    assert state["loop_status"] == "completed"
 
 
 def test_runtime_returns_guidance_without_tool_call():
@@ -41,3 +44,37 @@ def test_runtime_requires_approval_for_dangerous_command():
     assert "Approval required" in blocked["final_output"]
     assert "approval_gate" in blocked["execution_trace"]
     assert approved["decision"]["requires_approval"] is True
+
+
+def test_runtime_continues_across_multiple_explicit_steps():
+    app = AgentOsApp.bootstrap()
+
+    state = app.runtime.run_task(
+        "steps: run: pwd | knowledge: langgraph-runtime | say hello",
+        max_iterations=5,
+    )
+
+    assert state["iteration_count"] == 3
+    assert state["completed_tasks"] == [
+        "run: pwd",
+        "knowledge: langgraph-runtime",
+        "say hello",
+    ]
+    assert state["pending_tasks"] == []
+    assert state["loop_status"] == "completed"
+    assert "[step 1]" in state["final_output"]
+    assert "[knowledge:langgraph-runtime]" in state["final_output"]
+    assert state["execution_trace"].count("model_decide") == 3
+
+
+def test_runtime_stops_at_max_iterations_with_remaining_steps():
+    app = AgentOsApp.bootstrap()
+
+    state = app.runtime.run_task(
+        "steps: say hello | say again | say once more",
+        max_iterations=2,
+    )
+
+    assert state["iteration_count"] == 2
+    assert state["pending_tasks"] == ["say once more"]
+    assert state["loop_status"] == "stopped:max_iterations"
