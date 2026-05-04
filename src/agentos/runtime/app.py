@@ -36,6 +36,7 @@ class AgentGraphState(TypedDict):
 
     Fields:
     - user_task: the task given to the runtime
+    - session_id: the persisted session id for this run
     - pending_tasks: queued runtime steps to process
     - active_task: the current step being processed
     - completed_tasks: ordered list of completed steps
@@ -56,6 +57,7 @@ class AgentGraphState(TypedDict):
     """
 
     user_task: str
+    session_id: str
     pending_tasks: list[str]
     active_task: str
     completed_tasks: list[str]
@@ -94,6 +96,7 @@ class RuntimeBootstrap:
             "tasks_dir": str(self.settings.tasks_dir),
             "knowledge_dir": str(self.settings.knowledge_dir),
             "context_dir": str(self.settings.context_dir),
+            "sessions_dir": str(self.settings.sessions_dir),
             "background_jobs_dir": str(self.settings.background_jobs_dir),
             "workspaces_dir": str(self.settings.workspaces_dir),
             "coordination_dir": str(self.settings.coordination_dir),
@@ -110,11 +113,13 @@ class RuntimeBootstrap:
         session_id: str = "default",
         approved: bool = False,
         max_iterations: int = 5,
+        state_override: dict[str, object] | None = None,
     ) -> AgentGraphState:
         """Execute a task through the LangGraph workflow."""
 
         initial_state: AgentGraphState = {
             "user_task": user_task,
+            "session_id": session_id,
             "pending_tasks": [],
             "active_task": "",
             "completed_tasks": [],
@@ -133,6 +138,12 @@ class RuntimeBootstrap:
             "max_iterations": max_iterations,
             "loop_status": "initialized",
         }
+        if state_override:
+            initial_state.update(state_override)
+            initial_state["session_id"] = session_id
+            initial_state["user_task"] = user_task
+            initial_state["approved"] = approved
+            initial_state["max_iterations"] = max_iterations
         return self.graph.invoke(
             initial_state,
             config={"configurable": {"thread_id": session_id}},
@@ -296,7 +307,7 @@ def _build_graph(
 
     def initialize_loop(state: AgentGraphState) -> AgentGraphState:
         background_results = state["background_results"] or [
-            result.to_dict() for result in background_manager.consume_completed()
+            result.to_dict() for result in background_manager.consume_completed(state["session_id"])
         ]
         reentry_tasks = [
             _background_task_name(str(result["job_id"])) for result in background_results

@@ -12,6 +12,7 @@ from agentos.harness.execution import LocalCommandExecutor
 from agentos.knowledge import KnowledgeLoader
 from agentos.policy import CommandApprovalPolicy
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
+from agentos.sessions import SessionManager
 from agentos.tasks import TaskManager
 
 
@@ -24,6 +25,7 @@ class AgentOsApp:
     task_manager: TaskManager
     knowledge_loader: KnowledgeLoader
     context_manager: ContextManager
+    session_manager: SessionManager
     background_manager: BackgroundExecutionManager
     workspace_manager: WorkspaceManager
     coordination_manager: CoordinationManager
@@ -36,6 +38,7 @@ class AgentOsApp:
         executor = LocalCommandExecutor()
         knowledge_loader = KnowledgeLoader(settings.knowledge_dir)
         context_manager = ContextManager(settings.context_dir)
+        session_manager = SessionManager(settings.sessions_dir)
         background_manager = BackgroundExecutionManager(settings.background_jobs_dir)
         workspace_manager = WorkspaceManager(settings.workspaces_dir)
         coordination_manager = CoordinationManager(settings.coordination_dir)
@@ -54,6 +57,7 @@ class AgentOsApp:
             task_manager=task_manager,
             knowledge_loader=knowledge_loader,
             context_manager=context_manager,
+            session_manager=session_manager,
             background_manager=background_manager,
             workspace_manager=workspace_manager,
             coordination_manager=coordination_manager,
@@ -63,3 +67,27 @@ class AgentOsApp:
         """Return a small status payload for CLI and tests."""
 
         return self.runtime.summary()
+
+    def run_session_task(
+        self,
+        task: str,
+        *,
+        session_id: str,
+        approve: bool = False,
+        max_iterations: int = 5,
+        state_override: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        state = self.runtime.run_task(
+            task,
+            session_id=session_id,
+            approved=approve,
+            max_iterations=max_iterations,
+            state_override=state_override,
+        )
+        self.session_manager.record_turn(
+            session_id=session_id,
+            user_task=task,
+            state=state,
+            workspace_dir=str(self.settings.workspace_dir),
+        )
+        return state

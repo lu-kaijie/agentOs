@@ -17,6 +17,7 @@ class BackgroundJob:
     id: str
     command: list[str]
     cwd: str
+    session_id: str
     status: str
     pid: int
     stdout_path: str
@@ -29,6 +30,7 @@ class BackgroundJob:
             "id": self.id,
             "command": self.command,
             "cwd": self.cwd,
+            "session_id": self.session_id,
             "status": self.status,
             "pid": self.pid,
             "stdout_path": self.stdout_path,
@@ -43,6 +45,7 @@ class BackgroundJob:
             id=str(payload["id"]),
             command=[str(item) for item in payload["command"]],
             cwd=str(payload["cwd"]),
+            session_id=str(payload.get("session_id", "")),
             status=str(payload["status"]),
             pid=int(payload["pid"]),
             stdout_path=str(payload["stdout_path"]),
@@ -59,6 +62,7 @@ class BackgroundResult:
     job_id: str
     command: list[str]
     cwd: str
+    session_id: str
     exit_code: int
     stdout: str
     stderr: str
@@ -68,6 +72,7 @@ class BackgroundResult:
             "job_id": self.job_id,
             "command": self.command,
             "cwd": self.cwd,
+            "session_id": self.session_id,
             "exit_code": self.exit_code,
             "stdout": self.stdout,
             "stderr": self.stderr,
@@ -82,7 +87,7 @@ class BackgroundExecutionManager:
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.events_path = self.jobs_dir / "events.jsonl"
 
-    def run(self, command: list[str], cwd: str) -> BackgroundJob:
+    def run(self, command: list[str], cwd: str, session_id: str = "") -> BackgroundJob:
         job_id = uuid.uuid4().hex[:8]
         job_dir = self.jobs_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +109,7 @@ class BackgroundExecutionManager:
             id=job_id,
             command=command,
             cwd=cwd,
+            session_id=session_id,
             status="running",
             pid=process.pid,
             stdout_path=str(stdout_path),
@@ -131,7 +137,7 @@ class BackgroundExecutionManager:
             "jobs": jobs,
         }
 
-    def consume_completed(self) -> list[BackgroundResult]:
+    def consume_completed(self, session_id: str = "") -> list[BackgroundResult]:
         """Return completed background results that have not yet re-entered runtime."""
 
         results: list[BackgroundResult] = []
@@ -140,10 +146,13 @@ class BackgroundExecutionManager:
             job = self._refresh(job)
             if job.status != "completed" or job.consumed_by_runtime or job.exit_code is None:
                 continue
+            if session_id and job.session_id and job.session_id != session_id:
+                continue
             result = BackgroundResult(
                 job_id=job.id,
                 command=job.command,
                 cwd=job.cwd,
+                session_id=job.session_id,
                 exit_code=job.exit_code,
                 stdout=Path(job.stdout_path).read_text(encoding="utf-8"),
                 stderr=Path(job.stderr_path).read_text(encoding="utf-8"),

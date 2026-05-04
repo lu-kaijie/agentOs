@@ -18,6 +18,7 @@ def test_status_command_outputs_bootstrap_payload():
     assert payload["tasks_dir"].endswith(".agentos/tasks")
     assert payload["knowledge_dir"].endswith("/knowledge")
     assert payload["context_dir"].endswith(".agentos/context")
+    assert payload["sessions_dir"].endswith(".agentos/sessions")
     assert payload["background_jobs_dir"].endswith(".agentos/background")
     assert payload["workspaces_dir"].endswith(".agentos/workspaces")
     assert payload["coordination_dir"].endswith(".agentos/coordination")
@@ -40,3 +41,16 @@ def test_exec_command_uses_harness_boundary():
     assert payload["exit_code"] == 0
     assert payload["timed_out"] is False
     assert payload["command"] == ["pwd"]
+
+
+def test_run_command_persists_session_and_lists_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+
+    result = runner.invoke(app, ["run", "run: pwd", "--session-id", "demo-session"])
+    assert result.exit_code == 0
+
+    sessions_result = runner.invoke(app, ["sessions"])
+    assert sessions_result.exit_code == 0
+    payload = json.loads(sessions_result.stdout)
+    assert payload["total"] == 1
+    assert payload["sessions"][0]["id"] == "demo-session"

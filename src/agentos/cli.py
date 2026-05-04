@@ -38,10 +38,10 @@ def run(
     """Run the current LangGraph runtime with a task string."""
 
     application = AgentOsApp.bootstrap()
-    state = application.runtime.run_task(
+    state = application.run_session_task(
         task,
         session_id=session_id,
-        approved=approve,
+        approve=approve,
         max_iterations=max_iterations,
     )
     typer.echo("agentOs LangGraph runtime executed.")
@@ -73,12 +73,13 @@ def exec_command(command: list[str] = typer.Argument(..., help="Command to execu
 def bg_run(
     command: str = typer.Argument(..., help="Command string to execute in background."),
     workspace: str = typer.Option("", "--workspace", help="Optional isolated workspace name."),
+    session_id: str = typer.Option("", "--session-id", help="Optional owning session id."),
 ) -> None:
     """Launch a background command."""
 
     application = AgentOsApp.bootstrap()
     cwd = application.workspace_manager.resolve(workspace or None, str(application.settings.workspace_dir))
-    job = application.background_manager.run(command=shlex.split(command), cwd=cwd)
+    job = application.background_manager.run(command=shlex.split(command), cwd=cwd, session_id=session_id)
     typer.echo(json.dumps(job.to_dict(), indent=2, sort_keys=True))
 
 
@@ -271,6 +272,14 @@ def context_demo(session_id: str = typer.Argument("demo", help="Context session 
         "context_path": str(path),
     }
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("sessions")
+def sessions() -> None:
+    """List persisted runtime sessions."""
+
+    application = AgentOsApp.bootstrap()
+    typer.echo(json.dumps(application.session_manager.summary(), indent=2, sort_keys=True))
 
 
 def main() -> None:
