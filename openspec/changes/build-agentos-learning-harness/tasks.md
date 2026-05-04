@@ -61,10 +61,10 @@
 
 ## 10. Multi-Agent Coordination
 
-- [ ] 10.1 Define a delegation model for splitting large work into inspectable sub-work units
-- [ ] 10.2 Add coordination state that tracks pending, active, and completed delegated work
-- [ ] 10.3 Add a first bounded multi-agent or role-based execution flow tied to the task system
-- [ ] 10.4 Add tests or demos that show delegated work being coordinated and reconciled
+- [x] 10.1 Define a delegation model for splitting large work into inspectable sub-work units
+- [x] 10.2 Add coordination state that tracks pending, active, and completed delegated work
+- [x] 10.3 Add a first bounded multi-agent or role-based execution flow tied to the task system
+- [x] 10.4 Add tests or demos that show delegated work being coordinated and reconciled
 
 ## 11. Milestone Discipline
 

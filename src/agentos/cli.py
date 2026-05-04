@@ -9,6 +9,7 @@ import typer
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agentos.app import AgentOsApp
+from agentos.coordination.models import WorkUnitStatus
 from agentos.harness.execution import ExecutionRequest
 from agentos.tasks.models import TaskStatus
 
@@ -107,6 +108,60 @@ def workspace_list() -> None:
 
     application = AgentOsApp.bootstrap()
     typer.echo(json.dumps(application.workspace_manager.list(), indent=2, sort_keys=True))
+
+
+@app.command("unit-create")
+def unit_create(
+    title: str = typer.Argument(..., help="Delegated work title."),
+    role: str = typer.Option(..., "--role", help="Role assigned to this unit."),
+    task_id: int = typer.Option(None, "--task-id", help="Optional linked task id."),
+    workspace: str = typer.Option("", "--workspace", help="Optional workspace name."),
+    depends_on: list[int] = typer.Option(None, "--depends-on", help="Other unit ids that must complete first."),
+) -> None:
+    """Create a delegated work unit."""
+
+    application = AgentOsApp.bootstrap()
+    unit = application.coordination_manager.create_unit(
+        title=title,
+        role=role,
+        task_id=task_id,
+        workspace=workspace,
+        depends_on=depends_on,
+    )
+    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("unit-list")
+def unit_list() -> None:
+    """List delegated work units and ready work."""
+
+    application = AgentOsApp.bootstrap()
+    typer.echo(json.dumps(application.coordination_manager.summary(), indent=2, sort_keys=True))
+
+
+@app.command("unit-start")
+def unit_start(unit_id: int = typer.Argument(..., help="Work unit id.")) -> None:
+    """Mark a delegated work unit as running."""
+
+    application = AgentOsApp.bootstrap()
+    unit = application.coordination_manager.update_status(unit_id, status=WorkUnitStatus.RUNNING)
+    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("unit-complete")
+def unit_complete(
+    unit_id: int = typer.Argument(..., help="Work unit id."),
+    result: str = typer.Option("", "--result", help="Completion result summary."),
+) -> None:
+    """Mark a delegated work unit as completed."""
+
+    application = AgentOsApp.bootstrap()
+    unit = application.coordination_manager.update_status(
+        unit_id,
+        status=WorkUnitStatus.COMPLETED,
+        result=result,
+    )
+    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
 
 
 @app.command("task-create")

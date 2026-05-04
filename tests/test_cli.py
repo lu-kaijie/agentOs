@@ -20,6 +20,7 @@ def test_status_command_outputs_bootstrap_payload():
     assert payload["context_dir"].endswith(".agentos/context")
     assert payload["background_jobs_dir"].endswith(".agentos/background")
     assert payload["workspaces_dir"].endswith(".agentos/workspaces")
+    assert payload["coordination_dir"].endswith(".agentos/coordination")
 
 
 def test_run_command_announces_runtime_shell():

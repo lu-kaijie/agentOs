@@ -47,6 +47,7 @@ make bg-run
 make bg-list
 make workspace-create
 make workspace-list
+make unit-list
 make task-list
 make knowledge-list
 make context-demo
@@ -212,6 +213,16 @@ make workspace-list
 - delegation model
 - coordination state
 - 第一版受控多 agent 流程
+
+当前阶段的最小体验命令：
+
+```bash
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli unit-create "Inspect backend" --role researcher
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli unit-create "Write patch" --role builder --depends-on 1
+make unit-list
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli unit-complete 1 --result "inspection done"
+make unit-list
+```
 
 ### M10: Release Discipline
 

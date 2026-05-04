@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentos.config import Settings
+from agentos.coordination import CoordinationManager
 from agentos.context import ContextManager
 from agentos.execution_control import BackgroundExecutionManager, WorkspaceManager
 from agentos.harness.execution import LocalCommandExecutor
@@ -24,6 +25,7 @@ class AgentOsApp:
     context_manager: ContextManager
     background_manager: BackgroundExecutionManager
     workspace_manager: WorkspaceManager
+    coordination_manager: CoordinationManager
 
     @classmethod
     def bootstrap(cls) -> "AgentOsApp":
@@ -35,6 +37,7 @@ class AgentOsApp:
         context_manager = ContextManager(settings.context_dir)
         background_manager = BackgroundExecutionManager(settings.background_jobs_dir)
         workspace_manager = WorkspaceManager(settings.workspaces_dir)
+        coordination_manager = CoordinationManager(settings.coordination_dir)
         runtime = build_runtime(settings, executor=executor, knowledge_loader=knowledge_loader)
         task_manager = TaskManager(settings.tasks_dir)
         return cls(
@@ -45,6 +48,7 @@ class AgentOsApp:
             context_manager=context_manager,
             background_manager=background_manager,
             workspace_manager=workspace_manager,
+            coordination_manager=coordination_manager,
         )
 
     def status(self) -> dict[str, str]:
