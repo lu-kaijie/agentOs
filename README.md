@@ -42,6 +42,7 @@ bash scripts/verify_env.sh
 make status
 make run
 make exec
+make task-list
 make test
 make verify-env
 ```
@@ -125,6 +126,15 @@ make verify-env
 - 持久化任务模型
 - 依赖关系
 - reload / transition tests
+
+当前阶段的最小任务命令：
+
+```bash
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli task-create "Setup project"
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli task-create "Write tests" --blocked-by 1
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli task-list
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli task-complete 1
+```
 
 ### M6: Context And Skill Management
 

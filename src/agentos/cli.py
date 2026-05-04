@@ -8,6 +8,7 @@ import typer
 
 from agentos.app import AgentOsApp
 from agentos.harness.execution import ExecutionRequest
+from agentos.tasks.models import TaskStatus
 
 app = typer.Typer(
     add_completion=False,
@@ -53,6 +54,35 @@ def exec_command(command: list[str] = typer.Argument(..., help="Command to execu
         "timed_out": result.timed_out,
     }
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("task-create")
+def task_create(
+    title: str = typer.Argument(..., help="Task title."),
+    blocked_by: list[int] = typer.Option(None, "--blocked-by", help="Task ids that must complete first."),
+) -> None:
+    """Create a persistent task."""
+
+    application = AgentOsApp.bootstrap()
+    task = application.task_manager.create_task(title=title, blocked_by=blocked_by)
+    typer.echo(json.dumps(task.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("task-list")
+def task_list() -> None:
+    """List persisted tasks and ready work."""
+
+    application = AgentOsApp.bootstrap()
+    typer.echo(json.dumps(application.task_manager.summary(), indent=2, sort_keys=True))
+
+
+@app.command("task-complete")
+def task_complete(task_id: int = typer.Argument(..., help="Task id to mark completed.")) -> None:
+    """Complete a task and unblock dependents."""
+
+    application = AgentOsApp.bootstrap()
+    task = application.task_manager.update_status(task_id, TaskStatus.COMPLETED)
+    typer.echo(json.dumps(task.to_dict(), indent=2, sort_keys=True))
 
 
 def main() -> None:

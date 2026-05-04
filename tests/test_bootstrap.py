@@ -7,6 +7,7 @@ def test_settings_load_defaults():
 
     assert settings.project_root.name == "agentOs"
     assert settings.workspace_dir == settings.project_root
+    assert settings.tasks_dir.name == "tasks"
     assert settings.model_provider == "openai"
     assert settings.model_name == "gpt-4.1-mini"
 

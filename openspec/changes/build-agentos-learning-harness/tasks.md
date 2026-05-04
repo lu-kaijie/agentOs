@@ -31,10 +31,10 @@
 
 ## 6. Task Control Plane
 
-- [ ] 6.1 Design a persistent task model with statuses, identifiers, and on-disk storage
-- [ ] 6.2 Add explicit task dependency support so the system can distinguish ready and blocked work
-- [ ] 6.3 Connect task state to the runtime so multi-step work can continue across sessions
-- [ ] 6.4 Add tests that verify persistence, dependency transitions, and reload behavior
+- [x] 6.1 Design a persistent task model with statuses, identifiers, and on-disk storage
+- [x] 6.2 Add explicit task dependency support so the system can distinguish ready and blocked work
+- [x] 6.3 Connect task state to the runtime so multi-step work can continue across sessions
+- [x] 6.4 Add tests that verify persistence, dependency transitions, and reload behavior
 
 ## 7. Context And Skill Management
 
