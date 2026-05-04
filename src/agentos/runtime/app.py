@@ -83,6 +83,7 @@ class AgentGraphState(TypedDict):
     approval_policy: dict[str, object]
     tool_results: list[dict[str, object]]
     context_bundle: dict[str, object]
+    context_policy_records: list[dict[str, object]]
     current_role: str
     role_records: list[dict[str, object]]
     role_handoffs: list[dict[str, object]]
@@ -157,6 +158,7 @@ class RuntimeBootstrap:
             "approved": approved,
             "tool_results": [],
             "context_bundle": {},
+            "context_policy_records": [],
             "current_role": "",
             "role_records": [],
             "role_handoffs": [],
@@ -205,6 +207,7 @@ class RuntimeBootstrap:
             "approved": approved,
             "tool_results": [],
             "context_bundle": {},
+            "context_policy_records": [],
             "current_role": "",
             "role_records": [],
             "role_handoffs": [],
@@ -277,17 +280,27 @@ def _build_graph(
             task=active_task,
             state=state,
             workspace_dir=settings.workspace_dir,
+            role=current_role,
+        )
+        _, policy_record = context_manager.policy_runtime.build_bundle(
+            session_id=state["session_id"],
+            role=current_role,
+            task=active_task,
+            state=state,
+            workspace_dir=settings.workspace_dir,
         )
         return {
             **state,
             "active_task": active_task,
             "current_role": current_role,
             "context_bundle": bundle,
+            "context_policy_records": state["context_policy_records"] + [policy_record.to_dict()],
             "execution_trace": state["execution_trace"]
             + [
                 "prepare_context",
                 f"role={current_role}",
                 f"context_sources={','.join(bundle.get('sources', [])) or 'none'}",
+                f"context_role_view={bundle.get('role_view', {}).get('focus', 'none')}",
                 f"context_task={active_task}",
             ],
             "loop_status": "context_ready",

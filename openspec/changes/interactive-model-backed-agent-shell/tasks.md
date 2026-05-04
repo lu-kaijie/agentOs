@@ -12,9 +12,9 @@
 
 ## 3. Context Policy Runtime
 
-- [ ] 3.1 Replace the current hardcoded context-bundle selection rules with a configurable context policy pipeline
-- [ ] 3.2 Add role-specific context views that can combine task hints, history reduction, workspace retrieval, and tool-result prioritization
-- [ ] 3.3 Persist inspectable records of which context selectors, reducers, and retrieval sources were used per role step
+- [x] 3.1 Replace the current hardcoded context-bundle selection rules with a configurable context policy pipeline
+- [x] 3.2 Add role-specific context views that can combine task hints, history reduction, workspace retrieval, and tool-result prioritization
+- [x] 3.3 Persist inspectable records of which context selectors, reducers, and retrieval sources were used per role step
 
 ## 4. LangChain Tool Runtime
 

@@ -49,10 +49,12 @@ def test_context_manager_builds_task_aware_bundle(tmp_path: Path):
 
     assert bundle["task_hints"]["action"] == "read"
     assert bundle["task_hints"]["path"] == "README.md"
+    assert bundle["role"] == "executor"
     assert "history" in bundle["sources"]
     assert "tool_results" in bundle["sources"]
     assert bundle["workspace_signals"][0]["path"] == "README.md"
     assert "Tool registry demo" in bundle["workspace_signals"][0]["preview"]
+    assert bundle["role_view"]["focus"] == "execution"
 
 
 def test_context_manager_compresses_long_trace_and_tool_history(tmp_path: Path):
@@ -77,3 +79,24 @@ def test_context_manager_compresses_long_trace_and_tool_history(tmp_path: Path):
     assert "..." in bundle["history_summary"]
     assert "..." in bundle["tool_summary"]
     assert "..." in bundle["trace_summary"]
+
+
+def test_context_manager_supports_role_specific_views(tmp_path: Path):
+    manager = ContextManager(tmp_path)
+    (tmp_path / "README.md").write_text("role specific context\n", encoding="utf-8")
+
+    reviewer_bundle = manager.build_context_bundle(
+        session_id="bundle-c",
+        task="read: README.md",
+        state={
+            "completed_tasks": ["read: README.md"],
+            "step_outputs": ["read ok"],
+            "tool_results": [{"tool_name": "file_read", "summary": "read ok", "payload": {}}],
+            "execution_trace": ["prepare_context"],
+        },
+        workspace_dir=tmp_path,
+        role="reviewer",
+    )
+
+    assert reviewer_bundle["role"] == "reviewer"
+    assert reviewer_bundle["role_view"]["focus"] == "verification"

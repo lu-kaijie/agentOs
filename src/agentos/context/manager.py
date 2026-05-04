@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from agentos.context.policy import ContextPolicyRuntime
 
 
 class ContextManager:
@@ -15,6 +16,7 @@ class ContextManager:
     def __init__(self, context_dir: Path):
         self.context_dir = Path(context_dir)
         self.context_dir.mkdir(parents=True, exist_ok=True)
+        self.policy_runtime = ContextPolicyRuntime()
 
     def save_session(self, session_id: str, messages: list[BaseMessage]) -> Path:
         path = self._session_path(session_id)
@@ -58,38 +60,19 @@ class ContextManager:
         task: str,
         state: dict[str, object],
         workspace_dir: Path,
+        role: str = "executor",
         max_chars: int = 600,
     ) -> dict[str, object]:
-        """Build an inspectable task-aware context bundle for one runtime step."""
+        """Build an inspectable task-aware context bundle through policy runtime."""
 
-        hints = self._task_hints(task)
-        completed_tasks = [str(item) for item in state.get("completed_tasks", [])]
-        step_outputs = [str(item) for item in state.get("step_outputs", [])]
-        tool_results = [
-            item for item in state.get("tool_results", []) if isinstance(item, dict)
-        ]
-        execution_trace = [str(item) for item in state.get("execution_trace", [])]
-        history_entries = self._history_entries(completed_tasks, step_outputs)
-        workspace_signals = self._workspace_signals(workspace_dir=Path(workspace_dir), hints=hints)
-        bundle = {
-            "session_id": session_id,
-            "task": task,
-            "task_hints": hints,
-            "history_summary": self._compress_lines(
-                [f"{entry['task']} => {entry['output_preview']}" for entry in history_entries],
-                max_chars=max_chars // 3,
-            ),
-            "recent_history": history_entries[-3:],
-            "tool_summary": self._compress_lines(
-                [self._tool_summary(item) for item in tool_results],
-                max_chars=max_chars // 3,
-            ),
-            "recent_tool_results": tool_results[-3:],
-            "trace_summary": self._compress_lines(execution_trace, max_chars=max_chars // 4),
-            "workspace_signals": workspace_signals,
-            "sources": self._bundle_sources(history_entries, tool_results, workspace_signals),
-        }
-        bundle["bundle_preview"] = self.render_bundle(bundle, max_chars=max_chars)
+        bundle, _record = self.policy_runtime.build_bundle(
+            session_id=session_id,
+            role=role,
+            task=task,
+            state=state,
+            workspace_dir=Path(workspace_dir),
+            max_chars=max_chars,
+        )
         return bundle
 
     @staticmethod

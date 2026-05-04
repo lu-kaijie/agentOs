@@ -142,9 +142,26 @@ def test_runtime_context_selection_changes_with_task_and_history_size(tmp_path: 
 
     assert bundle["task"] == "say once more"
     assert bundle["task_hints"]["action"] == "respond"
+    assert bundle["role_view"]["focus"] == "execution"
     assert "history" in bundle["sources"]
     assert "tool_results" in bundle["sources"]
     assert "..." in bundle["history_summary"] or "..." in bundle["tool_summary"] or "..." in bundle["trace_summary"]
+
+
+def test_runtime_persists_context_policy_records(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    (tmp_path / "README.md").write_text("context policy runtime\n", encoding="utf-8")
+
+    app = AgentOsApp.bootstrap()
+    state = app.runtime.run_task(
+        "code: steps: read: README.md | test: python -c print(2)",
+        max_iterations=5,
+    )
+
+    assert state["context_policy_records"]
+    record = state["context_policy_records"][0]
+    assert "task_hints" in record["selectors"]
+    assert "workspace_signals" in record["retrievers"]
 
 
 def test_runtime_runs_bounded_role_based_coding_workflow(tmp_path: Path, monkeypatch):
