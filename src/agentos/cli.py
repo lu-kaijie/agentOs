@@ -123,6 +123,8 @@ def unit_create(
     task_id: int = typer.Option(None, "--task-id", help="Optional linked task id."),
     workspace: str = typer.Option("", "--workspace", help="Optional workspace name."),
     depends_on: list[int] = typer.Option(None, "--depends-on", help="Other unit ids that must complete first."),
+    instructions: str = typer.Option("", "--instructions", help="Optional role-specific instructions."),
+    command: list[str] = typer.Option(None, "--command", help="Optional delegated command."),
 ) -> None:
     """Create a delegated work unit."""
 
@@ -133,6 +135,8 @@ def unit_create(
         task_id=task_id,
         workspace=workspace,
         depends_on=depends_on,
+        instructions=instructions,
+        command=command,
     )
     typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
 
@@ -166,6 +170,21 @@ def unit_complete(
         unit_id,
         status=WorkUnitStatus.COMPLETED,
         result=result,
+    )
+    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("unit-exec")
+def unit_exec(unit_id: int = typer.Argument(..., help="Work unit id.")) -> None:
+    """Execute a delegated work unit through the local harness."""
+
+    application = AgentOsApp.bootstrap()
+    unit = application.coordination_manager.execute_unit(
+        unit_id,
+        executor=application.runtime.executor,
+        default_cwd=str(application.settings.workspace_dir),
+        workspace_resolver=application.workspace_manager.resolve,
+        task_manager=application.task_manager,
     )
     typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
 

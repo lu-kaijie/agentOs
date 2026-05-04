@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 
 from agentos.coordination.models import WorkUnitRecord, WorkUnitStatus
+from agentos.harness.execution import CommandExecutor, ExecutionRequest
+from agentos.tasks import TaskManager
+from agentos.tasks.models import TaskStatus
 
 
 class CoordinationManager:
@@ -23,6 +26,8 @@ class CoordinationManager:
         task_id: int | None = None,
         workspace: str = "",
         depends_on: list[int] | None = None,
+        instructions: str = "",
+        command: list[str] | None = None,
     ) -> WorkUnitRecord:
         unit = WorkUnitRecord(
             id=self._next_id(),
@@ -31,6 +36,8 @@ class CoordinationManager:
             task_id=task_id,
             workspace=workspace,
             depends_on=list(depends_on or []),
+            instructions=instructions,
+            command=list(command or []),
         )
         self._save(unit)
         return unit
@@ -57,6 +64,50 @@ class CoordinationManager:
         if result is not None:
             unit.result = result
         self._save(unit)
+        return unit
+
+    def execute_unit(
+        self,
+        unit_id: int,
+        *,
+        executor: CommandExecutor,
+        default_cwd: str,
+        workspace_resolver,
+        task_manager: TaskManager | None = None,
+    ) -> WorkUnitRecord:
+        unit = self.get_unit(unit_id)
+        if unit.status not in {WorkUnitStatus.PENDING, WorkUnitStatus.RUNNING}:
+            raise ValueError(f"Work unit {unit_id} is not executable from status '{unit.status.value}'")
+        if any(dep.status != WorkUnitStatus.COMPLETED for dep in self._dependencies(unit)):
+            raise ValueError(f"Work unit {unit_id} still has incomplete dependencies")
+
+        command = unit.command or self._default_command_for_role(unit)
+        execution_context = workspace_resolver(unit.workspace or None, default_cwd)
+        unit.status = WorkUnitStatus.RUNNING
+        unit.execution_context = execution_context
+        self._save(unit)
+        if unit.task_id is not None and task_manager is not None:
+            task_manager.bind_execution(
+                unit.task_id,
+                owner=unit.role,
+                execution_context=execution_context,
+                status=TaskStatus.IN_PROGRESS,
+            )
+
+        result = executor.run(ExecutionRequest(command=command, cwd=execution_context))
+        unit.command = command
+        unit.exit_code = result.exit_code
+        unit.result = result.stdout.strip() or result.stderr.strip() or "(no output)"
+        unit.status = WorkUnitStatus.COMPLETED if result.exit_code == 0 else WorkUnitStatus.FAILED
+        self._save(unit)
+
+        if unit.task_id is not None and task_manager is not None:
+            task_manager.bind_execution(
+                unit.task_id,
+                owner=unit.role,
+                execution_context=execution_context,
+                status=TaskStatus.COMPLETED if result.exit_code == 0 else TaskStatus.IN_PROGRESS,
+            )
         return unit
 
     def ready_units(self) -> list[WorkUnitRecord]:
@@ -94,3 +145,15 @@ class CoordinationManager:
     def _load(self, path: Path) -> WorkUnitRecord:
         payload = json.loads(path.read_text(encoding="utf-8"))
         return WorkUnitRecord.from_dict(payload)
+
+    def _dependencies(self, unit: WorkUnitRecord) -> list[WorkUnitRecord]:
+        return [self.get_unit(dep_id) for dep_id in unit.depends_on]
+
+    def _default_command_for_role(self, unit: WorkUnitRecord) -> list[str]:
+        payload = {
+            "role": unit.role,
+            "title": unit.title,
+            "instructions": unit.instructions,
+            "task_id": unit.task_id,
+        }
+        return ["python", "-c", f"import json; print(json.dumps({payload!r}, ensure_ascii=False))"]

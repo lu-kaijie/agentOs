@@ -10,6 +10,7 @@ class WorkUnitStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 @dataclass(slots=True)
@@ -24,6 +25,10 @@ class WorkUnitRecord:
     status: WorkUnitStatus = WorkUnitStatus.PENDING
     result: str = ""
     depends_on: list[int] = field(default_factory=list)
+    instructions: str = ""
+    command: list[str] = field(default_factory=list)
+    execution_context: str = ""
+    exit_code: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
@@ -41,4 +46,8 @@ class WorkUnitRecord:
             status=WorkUnitStatus(str(payload.get("status", WorkUnitStatus.PENDING.value))),
             result=str(payload.get("result", "")),
             depends_on=[int(item) for item in payload.get("depends_on", [])],
+            instructions=str(payload.get("instructions", "")),
+            command=[str(item) for item in payload.get("command", [])],
+            execution_context=str(payload.get("execution_context", "")),
+            exit_code=int(payload["exit_code"]) if payload.get("exit_code") is not None else None,
         )

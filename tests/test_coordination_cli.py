@@ -46,3 +46,42 @@ def test_coordination_cli_completes_and_unblocks(tmp_path: Path, monkeypatch):
     ready_titles = [unit["title"] for unit in listing["ready"]]
     assert "Write patch" in ready_titles
     assert two["id"] == 2
+
+
+def test_coordination_cli_executes_unit(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_COORDINATION_DIR", str(tmp_path / "coordination"))
+    monkeypatch.setenv("AGENTOS_TASKS_DIR", str(tmp_path / "tasks"))
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("AGENTOS_WORKSPACES_DIR", str(tmp_path / "workspaces"))
+
+    runner.invoke(app, ["workspace-create", "unit-a"])
+    task = json.loads(runner.invoke(app, ["task-create", "Delegated task"]).stdout)
+    unit = json.loads(
+        runner.invoke(
+            app,
+            [
+                "unit-create",
+                "Inspect backend",
+                "--role",
+                "researcher",
+                "--task-id",
+                str(task["id"]),
+                "--workspace",
+                "unit-a",
+                "--command",
+                "python",
+                "--command",
+                "-c",
+                "--command",
+                "print('delegated-cli', end='')",
+            ],
+        ).stdout
+    )
+
+    executed = runner.invoke(app, ["unit-exec", str(unit["id"])])
+
+    assert executed.exit_code == 0
+    payload = json.loads(executed.stdout)
+    assert payload["status"] == "completed"
+    assert payload["result"] == "delegated-cli"
+    assert payload["execution_context"].endswith("unit-a")

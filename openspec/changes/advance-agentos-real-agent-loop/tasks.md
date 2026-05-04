@@ -12,10 +12,10 @@
 
 ## 3. Delegated Execution
 
-- [ ] 3.1 Extend coordination records so work units can move into a bounded execution flow
-- [ ] 3.2 Add a first role-based delegated execution path tied to work units
-- [ ] 3.3 Connect delegated execution to task state or workspace state where appropriate
-- [ ] 3.4 Add tests or demos that show delegated work being created, executed, and reconciled
+- [x] 3.1 Extend coordination records so work units can move into a bounded execution flow
+- [x] 3.2 Add a first role-based delegated execution path tied to work units
+- [x] 3.3 Connect delegated execution to task state or workspace state where appropriate
+- [x] 3.4 Add tests or demos that show delegated work being created, executed, and reconciled
 
 ## 4. Permission Policy
 

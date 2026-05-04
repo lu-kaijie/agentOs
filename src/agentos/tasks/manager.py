@@ -53,6 +53,26 @@ class TaskManager:
             self._clear_dependency(task_id)
         return task
 
+    def bind_execution(
+        self,
+        task_id: int,
+        *,
+        owner: str | None = None,
+        execution_context: str | None = None,
+        status: TaskStatus | None = None,
+    ) -> TaskRecord:
+        task = self.get_task(task_id)
+        if owner is not None:
+            task.owner = owner
+        if execution_context is not None:
+            task.execution_context = execution_context
+        if status is not None:
+            task.status = status
+        self._save(task)
+        if status == TaskStatus.COMPLETED:
+            self._clear_dependency(task_id)
+        return task
+
     def ready_tasks(self) -> list[TaskRecord]:
         return [
             task
