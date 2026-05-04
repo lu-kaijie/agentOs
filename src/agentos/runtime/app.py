@@ -167,6 +167,54 @@ class RuntimeBootstrap:
             config={"configurable": {"thread_id": session_id}},
         )
 
+    def stream_task(
+        self,
+        user_task: str,
+        *,
+        session_id: str = "default",
+        approved: bool = False,
+        max_iterations: int = 5,
+        state_override: dict[str, object] | None = None,
+    ):
+        """Stream state updates for one task through the LangGraph workflow."""
+
+        initial_state: AgentGraphState = {
+            "user_task": user_task,
+            "session_id": session_id,
+            "pending_tasks": [],
+            "active_task": "",
+            "completed_tasks": [],
+            "step_outputs": [],
+            "decision": {},
+            "background_results": [],
+            "consumed_background_jobs": [],
+            "next_pending_tasks": [],
+            "approval_policy": {},
+            "last_result": "",
+            "final_output": "",
+            "loaded_knowledge": "",
+            "execution_trace": [],
+            "approved": approved,
+            "tool_results": [],
+            "context_bundle": {},
+            "current_role": "",
+            "role_records": [],
+            "iteration_count": 0,
+            "max_iterations": max_iterations,
+            "loop_status": "initialized",
+        }
+        if state_override:
+            initial_state.update(state_override)
+            initial_state["session_id"] = session_id
+            initial_state["user_task"] = user_task
+            initial_state["approved"] = approved
+            initial_state["max_iterations"] = max_iterations
+        yield from self.graph.stream(
+            initial_state,
+            config={"configurable": {"thread_id": session_id}},
+            stream_mode="values",
+        )
+
 
 def _build_graph(
     settings: Settings,

@@ -171,6 +171,26 @@ def test_watch_command_reuses_resume_flow(tmp_path, monkeypatch):
     assert "loop_status: completed" in watched.stdout
 
 
+def test_shell_reuses_one_session_across_multiple_turns(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+
+    result = runner.invoke(
+        app,
+        ["shell", "--session-id", "shell-demo", "--max-iterations", "3"],
+        input="say hello\n/status\nsay again\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "agentOs interactive shell started for session `shell-demo`." in result.stdout
+    assert "assistant>" in result.stdout
+    assert '"id": "shell-demo"' in result.stdout
+
+    session_result = runner.invoke(app, ["session-show", "shell-demo"])
+    assert session_result.exit_code == 0
+    payload = json.loads(session_result.stdout)
+    assert payload["session"]["turn_count"] == 2
+
+
 def test_runtime_multi_tool_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
     monkeypatch.setenv("AGENTOS_KNOWLEDGE_DIR", str(tmp_path / "knowledge"))

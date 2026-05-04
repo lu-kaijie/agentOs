@@ -62,6 +62,16 @@ def _echo_state_report(title: str, state: dict[str, object]) -> None:
     _echo_json(state)
 
 
+def _shell_status_line(state: dict[str, object]) -> str:
+    active_task = str(state.get("active_task", "") or "-")
+    role = str(state.get("current_role", "") or "-")
+    loop_status = str(state.get("loop_status", "") or "-")
+    iteration = int(state.get("iteration_count", 0))
+    return (
+        f"[status] loop={loop_status} iteration={iteration} role={role} active_task={active_task}"
+    )
+
+
 def _unit_summary_lines(summary: dict[str, object], *, unit_id: int | None = None) -> list[str]:
     units = summary.get("units", [])
     if not isinstance(units, list):
@@ -470,6 +480,63 @@ def watch(
         raise typer.Exit(code=1)
     typer.echo("原始状态:")
     _echo_json(latest_state)
+
+
+@app.command("shell")
+def shell(
+    session_id: str = typer.Option("shell", "--session-id", help="Persistent shell session id."),
+    approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
+    max_iterations: int = typer.Option(8, "--max-iterations", min=1, help="Bounded runtime loop limit per turn."),
+) -> None:
+    """Run a persistent interactive agent shell."""
+
+    application = AgentOsApp.bootstrap()
+    typer.echo(f"agentOs interactive shell started for session `{session_id}`.")
+    typer.echo("输入任务开始工作；输入 `/exit` 退出，`/status` 查看当前 session。")
+
+    while True:
+        try:
+            user_task = typer.prompt("agentos")
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("\nagentOs shell closed.")
+            return
+
+        command = user_task.strip()
+        if not command:
+            continue
+        if command in {"/exit", "exit", "quit", ":q"}:
+            typer.echo("agentOs shell closed.")
+            return
+        if command == "/status":
+            try:
+                payload = {
+                    "session": application.session_manager.get_session(session_id).to_dict(),
+                    "latest_turn": application.session_manager.load_latest_turn(session_id),
+                }
+                _echo_json(payload)
+            except FileNotFoundError:
+                typer.echo("当前 shell session 还没有任何 turn 记录。")
+            continue
+
+        latest_state: dict[str, object] | None = None
+        last_trace_len = -1
+        for state in application.stream_session_task(
+            command,
+            session_id=session_id,
+            approve=approve,
+            max_iterations=max_iterations,
+        ):
+            latest_state = state
+            trace = [str(item) for item in state.get("execution_trace", [])]
+            if len(trace) != last_trace_len:
+                typer.echo(_shell_status_line(state))
+                last_trace_len = len(trace)
+        if latest_state is None:
+            typer.echo("本轮没有产生状态更新。")
+            continue
+
+        typer.echo("assistant>")
+        typer.echo(str(latest_state.get("final_output", "")).rstrip())
 
 
 def main() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from collections.abc import Iterator
 
 from agentos.config import Settings
 from agentos.coordination import CoordinationManager
@@ -102,6 +103,34 @@ class AgentOsApp:
             workspace_dir=str(self.settings.workspace_dir),
         )
         return state
+
+    def stream_session_task(
+        self,
+        task: str,
+        *,
+        session_id: str,
+        approve: bool = False,
+        max_iterations: int = 5,
+        state_override: dict[str, object] | None = None,
+    ) -> Iterator[dict[str, object]]:
+        final_state: dict[str, object] | None = None
+        for state in self.runtime.stream_task(
+            task,
+            session_id=session_id,
+            approved=approve,
+            max_iterations=max_iterations,
+            state_override=state_override,
+        ):
+            final_state = state
+            yield state
+        if final_state is None:
+            return
+        self.session_manager.record_turn(
+            session_id=session_id,
+            user_task=task,
+            state=final_state,
+            workspace_dir=str(self.settings.workspace_dir),
+        )
 
     def resume_session(
         self,

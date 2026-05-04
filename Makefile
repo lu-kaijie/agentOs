@@ -1,13 +1,16 @@
 PYTHON := .venv-agentos/bin/python
 PYTEST := .venv-agentos/bin/pytest
 
-.PHONY: status run run-knowledge exec bg-run bg-list workspace-create workspace-list unit-list task-list knowledge-list context-demo test verify-env
+.PHONY: status run shell run-knowledge exec bg-run bg-list workspace-create workspace-list unit-list task-list knowledge-list context-demo test verify-env
 
 status:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli status
 
 run:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli run "run: pwd"
+
+shell:
+	PYTHONPATH=src $(PYTHON) -m agentos.cli shell --session-id demo-shell
 
 run-knowledge:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli run "knowledge: langgraph-runtime"
