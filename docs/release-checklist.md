@@ -46,3 +46,9 @@ A milestone is ready to tag only when all of the following are true:
 - `v0.12.0` Background result re-entry
 - `v0.13.0` Delegated execution runtime
 - `v0.14.0` Permission and approval policy
+- `v0.15.0` Session persistence
+- `v0.16.0` Session inspect / resume
+- `v0.17.0` Bounded continuation and replay
+- `v0.18.0` Structured tool registry
+- `v0.19.0` Task-aware context bundles
+- `v0.20.0` Bounded role workflow

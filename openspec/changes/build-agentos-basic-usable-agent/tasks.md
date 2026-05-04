@@ -27,7 +27,7 @@
 
 ## 5. Interactive CLI
 
-- [ ] 5.1 Add CLI flows for session listing, resume, and historical inspection
-- [ ] 5.2 Add a bounded `watch` or `poll` style CLI flow for continued session progress
-- [ ] 5.3 Improve runtime output presentation for longer sessions or streamed progress
-- [ ] 5.4 Update repository docs and milestone notes so the third change remains teachable and taggable
+- [x] 5.1 Add CLI flows for session listing, resume, and historical inspection
+- [x] 5.2 Add a bounded `watch` or `poll` style CLI flow for continued session progress
+- [x] 5.3 Improve runtime output presentation for longer sessions or streamed progress
+- [x] 5.4 Update repository docs and milestone notes so the third change remains teachable and taggable

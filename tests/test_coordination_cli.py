@@ -85,3 +85,27 @@ def test_coordination_cli_executes_unit(tmp_path: Path, monkeypatch):
     assert payload["status"] == "completed"
     assert payload["result"] == "delegated-cli"
     assert payload["execution_context"].endswith("unit-a")
+
+
+def test_coordination_cli_watches_units(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_COORDINATION_DIR", str(tmp_path / "coordination"))
+
+    created = json.loads(runner.invoke(app, ["unit-create", "Inspect backend", "--role", "researcher"]).stdout)
+
+    watched_pending = runner.invoke(
+        app,
+        ["unit-watch", "--unit-id", str(created["id"]), "--poll-count", "1", "--poll-interval", "0.1"],
+    )
+    assert watched_pending.exit_code == 0
+    assert "unit watch cycle 1/1" in watched_pending.stdout
+    assert "[pending]" in watched_pending.stdout
+
+    runner.invoke(app, ["unit-complete", str(created["id"]), "--result", "done"])
+
+    watched_completed = runner.invoke(
+        app,
+        ["unit-watch", "--unit-id", str(created["id"]), "--poll-count", "1", "--poll-interval", "0.1"],
+    )
+    assert watched_completed.exit_code == 0
+    assert "[completed]" in watched_completed.stdout
+    assert "所有关注的 work unit 已进入终态。" in watched_completed.stdout

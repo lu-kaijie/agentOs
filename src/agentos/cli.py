@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import time
 
 import typer
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -20,12 +21,85 @@ app = typer.Typer(
 )
 
 
+def _echo_json(payload: object) -> None:
+    """Render CLI JSON with readable UTF-8 output."""
+
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def _state_snapshot(state: dict[str, object]) -> list[str]:
+    """Build a compact, human-readable runtime summary."""
+
+    completed = len(state.get("completed_tasks", []))
+    pending = len(state.get("pending_tasks", []))
+    roles = state.get("role_records", [])
+    last_role = roles[-1]["role"] if roles else "n/a"
+    lines = [
+        f"session_id: {state.get('session_id', '')}",
+        f"loop_status: {state.get('loop_status', '')}",
+        f"iteration_count: {state.get('iteration_count', 0)}",
+        f"completed_tasks: {completed}",
+        f"pending_tasks: {pending}",
+        f"tool_results: {len(state.get('tool_results', []))}",
+        f"role_records: {len(roles)} (last={last_role})",
+    ]
+    if state.get("active_task"):
+        lines.append(f"active_task: {state['active_task']}")
+    if state.get("final_output"):
+        preview = str(state["final_output"]).strip().replace("\n", " ")
+        lines.append(f"final_output: {preview[:120]}")
+    return lines
+
+
+def _echo_state_report(title: str, state: dict[str, object]) -> None:
+    """Print a staged runtime view followed by raw JSON."""
+
+    typer.echo(title)
+    typer.echo("摘要:")
+    for line in _state_snapshot(state):
+        typer.echo(f"- {line}")
+    typer.echo("原始状态:")
+    _echo_json(state)
+
+
+def _unit_summary_lines(summary: dict[str, object], *, unit_id: int | None = None) -> list[str]:
+    units = summary.get("units", [])
+    if not isinstance(units, list):
+        return []
+    lines: list[str] = []
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        if unit_id is not None and int(unit.get("id", -1)) != unit_id:
+            continue
+        result = str(unit.get("result", "")).strip().replace("\n", " ")
+        lines.append(
+            f"unit {unit.get('id')} [{unit.get('status')}] role={unit.get('role')} title={unit.get('title')}"
+            + (f" result={result[:80]}" if result else "")
+        )
+    return lines
+
+
+def _all_units_terminal(summary: dict[str, object], *, unit_id: int | None = None) -> bool:
+    units = summary.get("units", [])
+    if not isinstance(units, list):
+        return False
+    filtered = [
+        unit
+        for unit in units
+        if isinstance(unit, dict) and (unit_id is None or int(unit.get("id", -1)) == unit_id)
+    ]
+    if not filtered:
+        return False
+    return all(str(unit.get("status")) in {"completed", "failed"} for unit in filtered)
+
+
 @app.command("status")
 def status() -> None:
     """Show the current bootstrap status."""
 
     payload = AgentOsApp.bootstrap().status()
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    _echo_json(payload)
 
 
 @app.command("run")
@@ -44,8 +118,7 @@ def run(
         approve=approve,
         max_iterations=max_iterations,
     )
-    typer.echo("agentOs LangGraph runtime executed.")
-    typer.echo(json.dumps(state, indent=2, sort_keys=True))
+    _echo_state_report("agentOs LangGraph runtime executed.", state)
 
 
 @app.command("exec")
@@ -59,7 +132,7 @@ def exec_command(command: list[str] = typer.Argument(..., help="Command to execu
             arguments={"command": command, "cwd": str(application.settings.workspace_dir)},
         )
     )
-    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    _echo_json(result.to_dict())
 
 
 @app.command("bg-run")
@@ -73,7 +146,7 @@ def bg_run(
     application = AgentOsApp.bootstrap()
     cwd = application.workspace_manager.resolve(workspace or None, str(application.settings.workspace_dir))
     job = application.background_manager.run(command=shlex.split(command), cwd=cwd, session_id=session_id)
-    typer.echo(json.dumps(job.to_dict(), indent=2, sort_keys=True))
+    _echo_json(job.to_dict())
 
 
 @app.command("bg-status")
@@ -82,7 +155,7 @@ def bg_status(job_id: str = typer.Argument(..., help="Background job id.")) -> N
 
     application = AgentOsApp.bootstrap()
     job = application.background_manager.get(job_id)
-    typer.echo(json.dumps(job.to_dict(), indent=2, sort_keys=True))
+    _echo_json(job.to_dict())
 
 
 @app.command("bg-list")
@@ -90,7 +163,7 @@ def bg_list() -> None:
     """List background jobs."""
 
     application = AgentOsApp.bootstrap()
-    typer.echo(json.dumps(application.background_manager.list(), indent=2, sort_keys=True))
+    _echo_json(application.background_manager.list())
 
 
 @app.command("workspace-create")
@@ -99,7 +172,7 @@ def workspace_create(name: str = typer.Argument(..., help="Workspace name.")) ->
 
     application = AgentOsApp.bootstrap()
     payload = application.workspace_manager.create(name)
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    _echo_json(payload)
 
 
 @app.command("workspace-list")
@@ -107,7 +180,7 @@ def workspace_list() -> None:
     """List isolated workspaces."""
 
     application = AgentOsApp.bootstrap()
-    typer.echo(json.dumps(application.workspace_manager.list(), indent=2, sort_keys=True))
+    _echo_json(application.workspace_manager.list())
 
 
 @app.command("unit-create")
@@ -132,7 +205,7 @@ def unit_create(
         instructions=instructions,
         command=command,
     )
-    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+    _echo_json(unit.to_dict())
 
 
 @app.command("unit-list")
@@ -140,7 +213,38 @@ def unit_list() -> None:
     """List delegated work units and ready work."""
 
     application = AgentOsApp.bootstrap()
-    typer.echo(json.dumps(application.coordination_manager.summary(), indent=2, sort_keys=True))
+    _echo_json(application.coordination_manager.summary())
+
+
+@app.command("unit-watch")
+def unit_watch(
+    unit_id: int = typer.Option(None, "--unit-id", help="Optional specific work unit id."),
+    poll_count: int = typer.Option(10, "--poll-count", min=1, help="Maximum watch cycles."),
+    poll_interval: float = typer.Option(0.5, "--poll-interval", min=0.1, help="Seconds between watch cycles."),
+) -> None:
+    """Watch delegated work units for status changes."""
+
+    application = AgentOsApp.bootstrap()
+    last_snapshot: list[str] = []
+    typer.echo("agentOs watching delegated work units.")
+    for poll_index in range(1, poll_count + 1):
+        summary = application.coordination_manager.summary()
+        lines = _unit_summary_lines(summary, unit_id=unit_id)
+        if poll_index == 1 or lines != last_snapshot:
+            typer.echo(f"unit watch cycle {poll_index}/{poll_count}")
+            for line in lines or ["- no matching work units"]:
+                typer.echo(f"- {line}")
+        last_snapshot = lines
+        if _all_units_terminal(summary, unit_id=unit_id):
+            typer.echo("所有关注的 work unit 已进入终态。")
+            typer.echo("原始状态:")
+            _echo_json(summary)
+            return
+        if poll_index < poll_count:
+            time.sleep(poll_interval)
+    typer.echo("达到 watch 上限，返回当前状态。")
+    typer.echo("原始状态:")
+    _echo_json(application.coordination_manager.summary())
 
 
 @app.command("unit-start")
@@ -149,7 +253,7 @@ def unit_start(unit_id: int = typer.Argument(..., help="Work unit id.")) -> None
 
     application = AgentOsApp.bootstrap()
     unit = application.coordination_manager.update_status(unit_id, status=WorkUnitStatus.RUNNING)
-    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+    _echo_json(unit.to_dict())
 
 
 @app.command("unit-complete")
@@ -165,7 +269,7 @@ def unit_complete(
         status=WorkUnitStatus.COMPLETED,
         result=result,
     )
-    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+    _echo_json(unit.to_dict())
 
 
 @app.command("unit-exec")
@@ -180,7 +284,7 @@ def unit_exec(unit_id: int = typer.Argument(..., help="Work unit id.")) -> None:
         workspace_resolver=application.workspace_manager.resolve,
         task_manager=application.task_manager,
     )
-    typer.echo(json.dumps(unit.to_dict(), indent=2, sort_keys=True))
+    _echo_json(unit.to_dict())
 
 
 @app.command("task-create")
@@ -192,7 +296,7 @@ def task_create(
 
     application = AgentOsApp.bootstrap()
     task = application.task_manager.create_task(title=title, blocked_by=blocked_by)
-    typer.echo(json.dumps(task.to_dict(), indent=2, sort_keys=True))
+    _echo_json(task.to_dict())
 
 
 @app.command("task-list")
@@ -200,7 +304,7 @@ def task_list() -> None:
     """List persisted tasks and ready work."""
 
     application = AgentOsApp.bootstrap()
-    typer.echo(json.dumps(application.task_manager.summary(), indent=2, sort_keys=True))
+    _echo_json(application.task_manager.summary())
 
 
 @app.command("task-complete")
@@ -209,7 +313,7 @@ def task_complete(task_id: int = typer.Argument(..., help="Task id to mark compl
 
     application = AgentOsApp.bootstrap()
     task = application.task_manager.update_status(task_id, TaskStatus.COMPLETED)
-    typer.echo(json.dumps(task.to_dict(), indent=2, sort_keys=True))
+    _echo_json(task.to_dict())
 
 
 @app.command("knowledge-list")
@@ -221,7 +325,7 @@ def knowledge_list() -> None:
         "knowledge_dir": str(application.settings.knowledge_dir),
         "topics": application.knowledge_loader.list_topics(),
     }
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    _echo_json(payload)
 
 
 @app.command("knowledge-load")
@@ -232,7 +336,7 @@ def knowledge_load(topic: str = typer.Argument(..., help="Knowledge topic to loa
     result = application.tool_registry.invoke(
         ToolInvocation(tool_name="knowledge_load", arguments={"topic": topic})
     )
-    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    _echo_json(result.to_dict())
 
 
 @app.command("context-demo")
@@ -261,7 +365,7 @@ def context_demo(session_id: str = typer.Argument("demo", help="Context session 
         "message_types": [message.type for message in compacted],
         "context_path": str(path),
     }
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    _echo_json(payload)
 
 
 @app.command("sessions")
@@ -269,7 +373,7 @@ def sessions() -> None:
     """List persisted runtime sessions."""
 
     application = AgentOsApp.bootstrap()
-    typer.echo(json.dumps(application.session_manager.summary(), indent=2, sort_keys=True))
+    _echo_json(application.session_manager.summary())
 
 
 @app.command("tool-list")
@@ -278,7 +382,7 @@ def tool_list() -> None:
 
     application = AgentOsApp.bootstrap()
     payload = {"tools": application.tool_registry.list_tools()}
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    _echo_json(payload)
 
 
 @app.command("tool-run")
@@ -294,7 +398,7 @@ def tool_run(
         key, _, value = item.partition("=")
         arguments[key] = value
     result = application.tool_registry.invoke(ToolInvocation(tool_name=tool_name, arguments=arguments))
-    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    _echo_json(result.to_dict())
 
 
 @app.command("session-show")
@@ -306,7 +410,7 @@ def session_show(session_id: str = typer.Argument(..., help="Persisted session i
         "session": application.session_manager.get_session(session_id).to_dict(),
         "latest_turn": application.session_manager.load_latest_turn(session_id),
     }
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    _echo_json(payload)
 
 
 @app.command("resume")
@@ -329,8 +433,43 @@ def resume(
         poll_iterations=poll_iterations,
         poll_interval=poll_interval,
     )
-    typer.echo("agentOs resumed session.")
-    typer.echo(json.dumps(state, indent=2, sort_keys=True))
+    _echo_state_report("agentOs resumed session.", state)
+
+
+@app.command("watch")
+def watch(
+    session_id: str = typer.Argument(..., help="Persisted session id."),
+    task: str = typer.Argument("", help="Optional next task for the watched session."),
+    approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
+    max_iterations: int = typer.Option(5, "--max-iterations", min=1, help="Bounded runtime loop limit."),
+    poll_count: int = typer.Option(5, "--poll-count", min=1, help="Maximum watch cycles."),
+    poll_interval: float = typer.Option(0.5, "--poll-interval", min=0.1, help="Seconds between watch cycles."),
+) -> None:
+    """Watch a session with bounded poll-and-resume cycles."""
+
+    application = AgentOsApp.bootstrap()
+    latest_state: dict[str, object] | None = None
+    typer.echo(f"agentOs watching session `{session_id}`.")
+    for poll_index in range(1, poll_count + 1):
+        latest_state = application.resume_session(
+            session_id,
+            task=task,
+            approve=approve,
+            max_iterations=max_iterations,
+            poll_iterations=1,
+            poll_interval=poll_interval,
+        )
+        typer.echo(f"watch cycle {poll_index}/{poll_count}")
+        for line in _state_snapshot(latest_state):
+            typer.echo(f"- {line}")
+        if str(latest_state.get("loop_status", "")) == "completed":
+            break
+        if poll_index < poll_count:
+            time.sleep(poll_interval)
+    if latest_state is None:
+        raise typer.Exit(code=1)
+    typer.echo("原始状态:")
+    _echo_json(latest_state)
 
 
 def main() -> None:

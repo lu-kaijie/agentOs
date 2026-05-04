@@ -62,6 +62,9 @@ make unit-list
 make task-list
 make knowledge-list
 make context-demo
+make sessions
+make session-show
+make resume
 make test
 make verify-env
 ```
@@ -69,6 +72,21 @@ make verify-env
 第二条 change 的分阶段体验说明见：
 
 - [docs/second-change-milestones.md](/home/mi/agentOs/docs/second-change-milestones.md:1)
+
+第三条 change 的分阶段体验说明：
+
+```bash
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli sessions
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli session-show <session-id>
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli resume <session-id>
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli watch <session-id>
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli unit-watch
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli tool-list
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli tool-run file_read --arg path=README.md
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "code: steps: read: README.md | write: notes.txt => demo | test: python -c print(321)" --session-id role-demo --max-iterations 5
+```
+
+这一步得到的是一个“已经具备 session / tool / context / role / interactive CLI 骨架”的基本可用 agent 原型，但还没有接入真实模型 API，也还没有把 role/tool/context 三层完全抽象成 LangChain 风格运行时。
 
 ## 项目原则
 
@@ -299,6 +317,29 @@ make unit-list
 - policy rule / reason / risk level
 - approval-driven tests
 
+### M15-M20: 第三个 Change 基本可用 Agent 原型
+
+学习目标：
+- 理解 session persistence、tool registry、context bundle、role workflow 和 interactive CLI 如何逐层拼成一个基本可用 agent
+- 学会把 LangGraph runtime 从“能跑”推进到“能持续使用和调试”
+
+预期产出：
+- `v0.15.0` Session persistence
+- `v0.16.0` Session inspect / resume
+- `v0.17.0` Bounded continuation and replay
+- `v0.18.0` Structured tool registry
+- `v0.19.0` Task-aware context bundle
+- `v0.20.0` Bounded role workflow
+
+当前这一步的最小体验命令：
+
+```bash
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "steps: search: Tool registry | read: README.md | write: notes.txt => alpha beta | patch: notes.txt => beta >> gamma | test: python -c print(456)" --session-id tool-demo --max-iterations 5
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "code: steps: read: README.md | write: notes.txt => role workflow | test: python -c print(321)" --session-id role-demo --max-iterations 5
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli watch role-demo
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli unit-watch
+```
+
 ## Tag Convention
 
 每个稳定 milestone 完成后打一个 Git tag，格式如下：
@@ -314,6 +355,12 @@ v0.<milestone>.<revision>
 - `v0.12.0`：后台结果回流
 - `v0.13.0`：delegated execution
 - `v0.14.0`：approval policy 与第二个 change 收尾
+- `v0.15.0`：session persistence
+- `v0.16.0`：session inspect / resume
+- `v0.17.0`：bounded continuation and replay
+- `v0.18.0`：structured tool registry
+- `v0.19.0`：task-aware context bundles
+- `v0.20.0`：bounded role workflow
 - `v0.2.0`：项目骨架完成
 - `v0.3.0`：harness foundation 完成
 - `v0.4.0`：LangGraph runtime v1 完成

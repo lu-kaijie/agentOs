@@ -86,7 +86,7 @@ def test_resume_reuses_persisted_session_state(tmp_path, monkeypatch):
 
 def test_tool_list_and_tool_run(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
-    (tmp_path / "sample.txt").write_text("hello tool registry", encoding="utf-8")
+    (tmp_path / "sample.txt").write_text("中文 tool registry", encoding="utf-8")
 
     listing = runner.invoke(app, ["tool-list"])
     assert listing.exit_code == 0
@@ -99,7 +99,8 @@ def test_tool_list_and_tool_run(tmp_path, monkeypatch):
     result = runner.invoke(app, ["tool-run", "file_read", "--arg", "path=sample.txt"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["payload"]["content"] == "hello tool registry"
+    assert payload["payload"]["content"] == "中文 tool registry"
+    assert "\\u4e2d\\u6587" not in result.stdout
 
 
 def test_resume_polls_and_consumes_background_result(tmp_path, monkeypatch):
@@ -141,6 +142,33 @@ def test_resume_polls_and_consumes_background_result(tmp_path, monkeypatch):
     assert "agentOs resumed session." in resumed.stdout
     assert "background_reentry" in resumed.stdout
     assert "tool_execute:knowledge_load" in resumed.stdout
+
+
+def test_watch_command_reuses_resume_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+
+    first = runner.invoke(
+        app,
+        ["run", "steps: say hello | say again", "--session-id", "watch-session", "--max-iterations", "1"],
+    )
+    assert first.exit_code == 0
+
+    watched = runner.invoke(
+        app,
+        [
+            "watch",
+            "watch-session",
+            "--poll-count",
+            "2",
+            "--poll-interval",
+            "0.1",
+        ],
+    )
+
+    assert watched.exit_code == 0
+    assert "agentOs watching session `watch-session`." in watched.stdout
+    assert "watch cycle 1/2" in watched.stdout
+    assert "loop_status: completed" in watched.stdout
 
 
 def test_runtime_multi_tool_flow(tmp_path, monkeypatch):
