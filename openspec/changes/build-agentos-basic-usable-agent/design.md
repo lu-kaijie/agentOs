@@ -25,11 +25,12 @@
 
 ### 1. 先做“可恢复的使用面”，再追求更多自治
 
-第三条 change 的优先级应先落在 session persistence、resume、logs、trace replay 和上下文可控性上，而不是先增加更多自治行为。
+第三条 change 的优先级应先落在 session persistence、resume、watch/poll、logs、trace replay 和上下文可控性上，而不是先增加更多自治行为。
 
 理由：
-- 第二条 change 后系统会首次具备更真实的 loop，如果没有恢复与查看能力，学习和调试成本会急剧上升。
+- 第二条 change 后系统会首次具备更真实的 loop 和后台回流，如果没有恢复、轮询和查看能力，学习和调试成本会急剧上升。
 - “基本可用”首先意味着你能回来继续工作，而不是每次都从头开始。
+- 在真正引入常驻 daemon 或主动推送之前，`resume` 与有边界的 `watch/poll` 是更稳的过渡形态。
 
 ### 2. 工具体系必须标准化，而不是继续堆独立命令
 
@@ -57,11 +58,28 @@ planner / executor / reviewer 的引入应保持明确边界，例如只允许 p
 
 ### 5. CLI 必须服务于“持续使用”而不是“单次演示”
 
-应增加会话查看、恢复、日志、流式轨迹等命令，让你不必每次都依赖底层 JSON 输出来理解 runtime。
+应增加会话查看、恢复、有限轮询、日志、流式轨迹等命令，让你不必每次都依赖底层 JSON 输出来理解 runtime。
 
 理由：
 - 当系统复杂度升高后，只靠 `run` 一个命令和大 JSON 输出会迅速失去可用性。
 - 这会让每一步的体验更接近真实工具，而不仅是 spec 演示。
+
+### 6. 先做 session 级持续运行，再决定是否进入 daemon / push 架构
+
+第三条 change 应优先支持 session 级的 `resume` 与 `watch/poll`，让一个已持久化 session 能在检测到后台结果后继续推进；不要求这一阶段就引入常驻监听进程或完整主动推送。
+
+理由：
+- 这样能把“后台结果回流”升级成更接近可用的持续运行体验，但不会过早引入复杂守护进程生命周期。
+- `resume/watch` 能和 session persistence、CLI、trace replay 自然绑定，边界更清晰。
+
+## Evolution Path
+
+围绕后台结果与持续运行体验，建议按下面的演化路径推进：
+
+1. 第二条 change：启动时扫描未消费后台结果，并将其重新注入 loop。
+2. 第三条 change 前半段：支持 `session resume`，从持久化状态继续一个已有 session。
+3. 第三条 change 中段：支持有边界的 `session watch/poll`，在指定 session 上轮询后台结果并自动续跑。
+4. 第三条 change 后半段或第四条 change：再评估是否引入常驻 daemon、事件驱动 resume 或主动推送。
 
 ## Risks / Trade-offs
 
@@ -69,19 +87,22 @@ planner / executor / reviewer 的引入应保持明确边界，例如只允许 p
 - [工具体系扩展过快可能抬高权限风险] → 缓解：复用第二条 change 的 policy layer，并把新工具全部纳入统一策略判断。
 - [上下文工程容易做成难以理解的隐式魔法] → 缓解：让每次上下文选择和压缩都产生可检查痕迹。
 - [角色化流程可能和 delegated execution 重叠] → 缓解：第三条 change 只定义 coding workflow 层，保留第二条 change 的 execution/control 分层。
+- [过早引入常驻监听会把项目拖入进程生命周期和并发恢复问题] → 缓解：第三条 change 先限制在 session 级 `resume/watch`，daemon/push 视后续阶段再定。
 
 ## Migration Plan
 
 建议按如下顺序推进：
 
 1. 建立 session / trace 持久化、恢复和回放基础。
-2. 扩展 tool registry，并先打通文件读写、搜索、patch/apply、测试执行等关键工具。
-3. 引入高级上下文工程，包括工作区索引、摘要压缩和任务相关检索。
-4. 在已有 loop 之上接入 planner / executor / reviewer 的受控工作流。
-5. 整理 CLI 体验、文档、演示命令与 milestone tag。
+2. 为已持久化 session 增加 `resume` 与有限 `watch/poll` 能力，先打通后台结果驱动的续跑体验。
+3. 扩展 tool registry，并先打通文件读写、搜索、patch/apply、测试执行等关键工具。
+4. 引入高级上下文工程，包括工作区索引、摘要压缩和任务相关检索。
+5. 在已有 loop 之上接入 planner / executor / reviewer 的受控工作流。
+6. 整理 CLI 体验、文档、演示命令与 milestone tag。
 
 ## Open Questions
 
 - 第三条 change 的会话恢复是否需要精确 checkpoint resume，还是先支持“从持久化状态重建并继续”？
+- 第三条 change 的 `watch/poll` 第一版是固定时间间隔，还是支持更显式的单次 `check-and-resume` 模式？
 - 工具 registry 第一版是静态注册，还是要提前保留插件化扩展接口？
 - reviewer 角色第一版是否只做规则化验证，还是允许模型参与审查反馈？

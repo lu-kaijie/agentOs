@@ -7,6 +7,13 @@ The system SHALL provide CLI commands or flows for listing sessions, resuming pr
 - **WHEN** a contributor wants to continue a previous agent session
 - **THEN** the CLI exposes a direct way to locate and resume that session
 
+### Requirement: CLI must support bounded watch or poll flows for continued sessions
+The system SHALL provide a bounded CLI flow for watching or polling a saved session so newly available runtime events can trigger continued progress without requiring a manual full restart every time.
+
+#### Scenario: Contributor watches a session waiting on background work
+- **WHEN** a contributor wants a saved session to continue after background work completes
+- **THEN** the CLI provides a bounded watch or poll mode that can detect the new state and resume that session
+
 ### Requirement: CLI execution must remain observable during longer runs
 The system SHALL provide a more readable execution view for longer agent runs than a single large JSON dump.
 

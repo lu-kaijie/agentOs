@@ -22,6 +22,7 @@ class BackgroundJob:
     stdout_path: str
     stderr_path: str
     exit_code: int | None
+    consumed_by_runtime: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -33,6 +34,7 @@ class BackgroundJob:
             "stdout_path": self.stdout_path,
             "stderr_path": self.stderr_path,
             "exit_code": self.exit_code,
+            "consumed_by_runtime": self.consumed_by_runtime,
         }
 
     @classmethod
@@ -46,7 +48,30 @@ class BackgroundJob:
             stdout_path=str(payload["stdout_path"]),
             stderr_path=str(payload["stderr_path"]),
             exit_code=int(payload["exit_code"]) if payload.get("exit_code") is not None else None,
+            consumed_by_runtime=bool(payload.get("consumed_by_runtime", False)),
         )
+
+
+@dataclass(slots=True)
+class BackgroundResult:
+    """Structured background result for runtime re-entry."""
+
+    job_id: str
+    command: list[str]
+    cwd: str
+    exit_code: int
+    stdout: str
+    stderr: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "job_id": self.job_id,
+            "command": self.command,
+            "cwd": self.cwd,
+            "exit_code": self.exit_code,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+        }
 
 
 class BackgroundExecutionManager:
@@ -105,6 +130,29 @@ class BackgroundExecutionManager:
             "jobs_dir": str(self.jobs_dir),
             "jobs": jobs,
         }
+
+    def consume_completed(self) -> list[BackgroundResult]:
+        """Return completed background results that have not yet re-entered runtime."""
+
+        results: list[BackgroundResult] = []
+        for path in sorted(self.jobs_dir.glob("*/job.json")):
+            job = BackgroundJob.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            job = self._refresh(job)
+            if job.status != "completed" or job.consumed_by_runtime or job.exit_code is None:
+                continue
+            result = BackgroundResult(
+                job_id=job.id,
+                command=job.command,
+                cwd=job.cwd,
+                exit_code=job.exit_code,
+                stdout=Path(job.stdout_path).read_text(encoding="utf-8"),
+                stderr=Path(job.stderr_path).read_text(encoding="utf-8"),
+            )
+            job.consumed_by_runtime = True
+            self._save(job)
+            self._emit_event("job.reentered", job)
+            results.append(result)
+        return results
 
     def _refresh(self, job: BackgroundJob) -> BackgroundJob:
         exit_code_path = self.jobs_dir / job.id / "exit_code.txt"

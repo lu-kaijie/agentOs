@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 from agentos.config import Settings
+from agentos.execution_control import BackgroundExecutionManager
 from agentos.harness.execution import CommandExecutor, ExecutionRequest
 from agentos.knowledge import KnowledgeLoader
 
@@ -39,6 +40,9 @@ class AgentGraphState(TypedDict):
     - completed_tasks: ordered list of completed steps
     - step_outputs: ordered list of outputs emitted by each completed step
     - decision: structured routing result
+    - background_results: completed async results waiting to influence runtime
+    - consumed_background_jobs: background jobs already consumed in this session
+    - next_pending_tasks: optional queue override produced by a node before finalize
     - last_result: summarized tool execution result for the current run
     - final_output: the final assistant-facing text
     - loaded_knowledge: knowledge content loaded on demand
@@ -55,6 +59,9 @@ class AgentGraphState(TypedDict):
     completed_tasks: list[str]
     step_outputs: list[str]
     decision: dict[str, object]
+    background_results: list[dict[str, object]]
+    consumed_background_jobs: list[str]
+    next_pending_tasks: list[str]
     last_result: str
     final_output: str
     loaded_knowledge: str
@@ -72,6 +79,7 @@ class RuntimeBootstrap:
     settings: Settings
     executor: CommandExecutor
     knowledge_loader: KnowledgeLoader
+    background_manager: BackgroundExecutionManager
     graph: object
 
     def summary(self) -> dict[str, str]:
@@ -108,6 +116,9 @@ class RuntimeBootstrap:
             "completed_tasks": [],
             "step_outputs": [],
             "decision": {},
+            "background_results": [],
+            "consumed_background_jobs": [],
+            "next_pending_tasks": [],
             "last_result": "",
             "final_output": "",
             "loaded_knowledge": "",
@@ -127,6 +138,7 @@ def _build_graph(
     settings: Settings,
     executor: CommandExecutor,
     knowledge_loader: KnowledgeLoader,
+    background_manager: BackgroundExecutionManager,
 ):
     """Build the advanced LangGraph runtime."""
 
@@ -165,6 +177,36 @@ def _build_graph(
                 f"action={decision.action}",
             ],
             "loop_status": "decision_ready",
+        }
+
+    def background_reentry(state: AgentGraphState) -> AgentGraphState:
+        active_task = state["pending_tasks"][0]
+        job_id = active_task.split(":", 1)[1]
+        result = next(
+            item for item in state["background_results"] if str(item["job_id"]) == job_id
+        )
+        follow_up_task = _background_follow_up(result)
+        final_output = (
+            f"Background job {job_id} completed with exit_code={result['exit_code']}."
+        )
+        if follow_up_task:
+            final_output += f" Queued follow-up step: {follow_up_task}"
+        next_pending_tasks = state["pending_tasks"][1:]
+        if follow_up_task:
+            next_pending_tasks = [follow_up_task, *next_pending_tasks]
+        return {
+            **state,
+            "active_task": active_task,
+            "next_pending_tasks": next_pending_tasks,
+            "consumed_background_jobs": state["consumed_background_jobs"] + [job_id],
+            "final_output": final_output,
+            "execution_trace": state["execution_trace"]
+            + [
+                "background_reentry",
+                f"job_id={job_id}",
+                f"follow_up={follow_up_task or 'none'}",
+            ],
+            "loop_status": "background_reentered",
         }
 
     def approval_gate(state: AgentGraphState) -> AgentGraphState:
@@ -235,13 +277,24 @@ def _build_graph(
         return "respond_directly"
 
     def initialize_loop(state: AgentGraphState) -> AgentGraphState:
-        pending_tasks = state["pending_tasks"] or _expand_user_task(state["user_task"])
+        background_results = state["background_results"] or [
+            result.to_dict() for result in background_manager.consume_completed()
+        ]
+        reentry_tasks = [
+            _background_task_name(str(result["job_id"])) for result in background_results
+        ]
+        pending_tasks = state["pending_tasks"] or [
+            *reentry_tasks,
+            *_expand_user_task(state["user_task"]),
+        ]
         return {
             **state,
+            "background_results": background_results,
             "pending_tasks": pending_tasks,
             "execution_trace": state["execution_trace"]
             + [
                 "initialize_loop",
+                f"background_results_detected={len(background_results)}",
                 f"planned_steps={len(pending_tasks)}",
                 f"max_iterations={state['max_iterations']}",
             ],
@@ -249,7 +302,7 @@ def _build_graph(
         }
 
     def finalize_iteration(state: AgentGraphState) -> AgentGraphState:
-        remaining_tasks = state["pending_tasks"][1:]
+        remaining_tasks = state["next_pending_tasks"] or state["pending_tasks"][1:]
         step_outputs = state["step_outputs"] + [state["final_output"]]
         completed_tasks = state["completed_tasks"] + [state["active_task"]]
         iteration_count = state["iteration_count"] + 1
@@ -262,6 +315,7 @@ def _build_graph(
         return {
             **state,
             "pending_tasks": remaining_tasks,
+            "next_pending_tasks": [],
             "completed_tasks": completed_tasks,
             "step_outputs": step_outputs,
             "final_output": final_output,
@@ -276,23 +330,34 @@ def _build_graph(
             "loop_status": loop_status,
         }
 
+    def route_after_initialize(state: AgentGraphState) -> str:
+        if not state["pending_tasks"]:
+            return END
+        if state["pending_tasks"][0].startswith("background_result:"):
+            return "background_reentry"
+        return "model_decide"
+
     def route_after_finalize(state: AgentGraphState) -> str:
         if state["pending_tasks"] and state["iteration_count"] < state["max_iterations"]:
+            if state["pending_tasks"][0].startswith("background_result:"):
+                return "background_reentry"
             return "model_decide"
         return END
 
     graph_builder = StateGraph(AgentGraphState)
     graph_builder.add_node("initialize_loop", initialize_loop)
     graph_builder.add_node("model_decide", model_decide)
+    graph_builder.add_node("background_reentry", background_reentry)
     graph_builder.add_node("approval_gate", approval_gate)
     graph_builder.add_node("tool_execute", tool_execute)
     graph_builder.add_node("knowledge_execute", knowledge_execute)
     graph_builder.add_node("respond_directly", respond_directly)
     graph_builder.add_node("finalize_iteration", finalize_iteration)
     graph_builder.add_edge(START, "initialize_loop")
-    graph_builder.add_edge("initialize_loop", "model_decide")
+    graph_builder.add_conditional_edges("initialize_loop", route_after_initialize)
     graph_builder.add_conditional_edges("model_decide", route_after_model)
     graph_builder.add_edge("approval_gate", END)
+    graph_builder.add_edge("background_reentry", "finalize_iteration")
     graph_builder.add_edge("tool_execute", "finalize_iteration")
     graph_builder.add_edge("knowledge_execute", "finalize_iteration")
     graph_builder.add_edge("respond_directly", "finalize_iteration")
@@ -309,6 +374,27 @@ def _expand_user_task(user_task: str) -> list[str]:
         if steps:
             return steps
     return [user_task]
+
+
+def _background_task_name(job_id: str) -> str:
+    """Build the synthetic task name used for background re-entry."""
+
+    return f"background_result:{job_id}"
+
+
+def _background_follow_up(result: dict[str, object]) -> str:
+    """Translate a background result into a follow-up runtime step when possible."""
+
+    stdout = str(result.get("stdout", "")).strip()
+    if stdout.startswith("knowledge:"):
+        topic = stdout.split(":", 1)[1].strip()
+        if topic:
+            return f"knowledge: {topic}"
+    if stdout.startswith("run:"):
+        command_text = stdout.split(":", 1)[1].strip()
+        if command_text:
+            return f"run: {command_text}"
+    return ""
 
 
 def _compose_final_output(step_outputs: list[str]) -> str:
@@ -374,13 +460,15 @@ def build_runtime(
     settings: Settings,
     executor: CommandExecutor,
     knowledge_loader: KnowledgeLoader,
+    background_manager: BackgroundExecutionManager,
 ) -> RuntimeBootstrap:
     """Build the advanced LangGraph runtime shell."""
 
-    graph = _build_graph(settings, executor, knowledge_loader)
+    graph = _build_graph(settings, executor, knowledge_loader, background_manager)
     return RuntimeBootstrap(
         settings=settings,
         executor=executor,
         knowledge_loader=knowledge_loader,
+        background_manager=background_manager,
         graph=graph,
     )

@@ -7,6 +7,13 @@ The system SHALL persist session state, task state, and trace records so a contr
 - **WHEN** a previous runtime session was interrupted after making progress
 - **THEN** the contributor can inspect the saved session state and continue work without reconstructing the earlier steps by hand
 
+### Requirement: Persisted sessions must support bounded continuation after external progress
+The system SHALL support continuing a persisted session after external runtime-relevant events such as completed background work become available.
+
+#### Scenario: Session is resumed after background work completes
+- **WHEN** a persisted session is resumed after one of its background tasks finishes
+- **THEN** the resumed runtime can consume that new result and continue the session without treating it as a brand-new unrelated run
+
 ### Requirement: Session replay must remain inspectable
 The system SHALL provide a replayable or readable execution record that makes prior loop decisions and tool activity understandable.
 

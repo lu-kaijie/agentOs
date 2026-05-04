@@ -1,4 +1,14 @@
+import time
+from pathlib import Path
+
+import pytest
+
 from agentos.app import AgentOsApp
+
+
+@pytest.fixture(autouse=True)
+def isolate_background_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("AGENTOS_BACKGROUND_DIR", str(tmp_path / "background"))
 
 
 def test_runtime_runs_tool_enabled_task():
@@ -78,3 +88,34 @@ def test_runtime_stops_at_max_iterations_with_remaining_steps():
     assert state["iteration_count"] == 2
     assert state["pending_tasks"] == ["say once more"]
     assert state["loop_status"] == "stopped:max_iterations"
+
+
+def test_runtime_reenters_completed_background_results(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_BACKGROUND_DIR", str(tmp_path / "background"))
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("AGENTOS_KNOWLEDGE_DIR", str(tmp_path / "knowledge"))
+    knowledge_dir = tmp_path / "knowledge"
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    (knowledge_dir / "langgraph-runtime.md").write_text("# Runtime from background", encoding="utf-8")
+
+    app = AgentOsApp.bootstrap()
+    job = app.background_manager.run(
+        ["bash", "-lc", "printf 'knowledge: langgraph-runtime'"],
+        cwd=str(tmp_path),
+    )
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        refreshed = app.background_manager.get(job.id)
+        if refreshed.status == "completed":
+            break
+        time.sleep(0.1)
+
+    state = app.runtime.run_task("say hello", max_iterations=5)
+
+    assert state["consumed_background_jobs"] == [job.id]
+    assert "background_reentry" in state["execution_trace"]
+    assert "background_results_detected=1" in state["execution_trace"]
+    assert "knowledge_execute" in state["execution_trace"]
+    assert "[knowledge:langgraph-runtime]" in state["final_output"]
+    assert state["completed_tasks"][0] == f"background_result:{job.id}"

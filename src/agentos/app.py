@@ -38,7 +38,12 @@ class AgentOsApp:
         background_manager = BackgroundExecutionManager(settings.background_jobs_dir)
         workspace_manager = WorkspaceManager(settings.workspaces_dir)
         coordination_manager = CoordinationManager(settings.coordination_dir)
-        runtime = build_runtime(settings, executor=executor, knowledge_loader=knowledge_loader)
+        runtime = build_runtime(
+            settings,
+            executor=executor,
+            knowledge_loader=knowledge_loader,
+            background_manager=background_manager,
+        )
         task_manager = TaskManager(settings.tasks_dir)
         return cls(
             settings=settings,

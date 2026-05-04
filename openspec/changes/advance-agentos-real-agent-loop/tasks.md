@@ -6,9 +6,9 @@
 
 ## 2. Background Result Re-entry
 
-- [ ] 2.1 Connect completed background job state back into runtime input handling
-- [ ] 2.2 Add a path for the runtime to detect and consume completed background results in later decision steps
-- [ ] 2.3 Add tests or demos that show a background task completing and then influencing subsequent runtime behavior
+- [x] 2.1 Connect completed background job state back into runtime input handling
+- [x] 2.2 Add a path for the runtime to detect and consume completed background results in later decision steps
+- [x] 2.3 Add tests or demos that show a background task completing and then influencing subsequent runtime behavior
 
 ## 3. Delegated Execution
 
