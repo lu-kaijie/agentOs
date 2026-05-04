@@ -21,6 +21,10 @@ The system SHALL provide a more readable execution view for longer agent runs th
 - **WHEN** a runtime session performs multiple steps and tool calls
 - **THEN** the CLI exposes an inspectable live or staged view of progress, trace, and major state changes
 
+#### Scenario: Contributor reads Chinese content in CLI output
+- **WHEN** a CLI command prints persisted content, tool payloads, or runtime state that contains Chinese text
+- **THEN** the CLI renders readable UTF-8 text directly rather than JSON Unicode escape sequences such as `\u4e2d\u6587`
+
 ### Requirement: CLI commands must align with the persisted runtime model
 The system SHALL keep CLI session and log commands aligned with persisted runtime state rather than relying only on transient in-memory values.
 

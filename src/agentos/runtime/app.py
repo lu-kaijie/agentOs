@@ -17,18 +17,21 @@ from agentos.execution_control import BackgroundExecutionManager
 from agentos.harness.execution import CommandExecutor, ExecutionRequest
 from agentos.knowledge import KnowledgeLoader
 from agentos.policy import CommandApprovalPolicy
+from agentos.tools import ToolInvocation, ToolRegistry
 
 
 class RuntimeDecision(BaseModel):
     """Structured runtime decision for graph routing."""
 
-    action: Literal["run_command", "load_knowledge", "respond"] = Field(
+    action: Literal["run_command", "load_knowledge", "respond", "use_tool"] = Field(
         description="What the runtime should do next."
     )
     command: list[str] = Field(default_factory=list)
     topic: str = Field(default="")
     response: str = Field(default="")
     requires_approval: bool = Field(default=False)
+    tool_name: str = Field(default="")
+    tool_input: dict[str, object] = Field(default_factory=dict)
 
 
 class AgentGraphState(TypedDict):
@@ -46,6 +49,7 @@ class AgentGraphState(TypedDict):
     - consumed_background_jobs: background jobs already consumed in this session
     - next_pending_tasks: optional queue override produced by a node before finalize
     - approval_policy: inspectable approval policy output for command execution
+    - tool_results: structured tool results accumulated across loop steps
     - last_result: summarized tool execution result for the current run
     - final_output: the final assistant-facing text
     - loaded_knowledge: knowledge content loaded on demand
@@ -67,6 +71,7 @@ class AgentGraphState(TypedDict):
     consumed_background_jobs: list[str]
     next_pending_tasks: list[str]
     approval_policy: dict[str, object]
+    tool_results: list[dict[str, object]]
     last_result: str
     final_output: str
     loaded_knowledge: str
@@ -86,6 +91,7 @@ class RuntimeBootstrap:
     knowledge_loader: KnowledgeLoader
     background_manager: BackgroundExecutionManager
     approval_policy: CommandApprovalPolicy
+    tool_registry: ToolRegistry
     graph: object
 
     def summary(self) -> dict[str, str]:
@@ -134,6 +140,7 @@ class RuntimeBootstrap:
             "loaded_knowledge": "",
             "execution_trace": [],
             "approved": approved,
+            "tool_results": [],
             "iteration_count": 0,
             "max_iterations": max_iterations,
             "loop_status": "initialized",
@@ -156,6 +163,7 @@ def _build_graph(
     knowledge_loader: KnowledgeLoader,
     background_manager: BackgroundExecutionManager,
     approval_policy: CommandApprovalPolicy,
+    tool_registry: ToolRegistry,
 ):
     """Build the advanced LangGraph runtime."""
 
@@ -257,32 +265,44 @@ def _build_graph(
 
     def tool_execute(state: AgentGraphState) -> AgentGraphState:
         decision = RuntimeDecision.model_validate(state["decision"])
-        request = ExecutionRequest(
-            command=decision.command,
-            cwd=str(settings.workspace_dir),
-        )
-        result = executor.run(request)
-        last_result = (
-            f"command={result.command} exit_code={result.exit_code} "
-            f"timed_out={result.timed_out}"
-        )
-        final_output = result.stdout.strip() or result.stderr.strip() or "(no output)"
+        if decision.action == "run_command":
+            invocation = ToolInvocation(
+                tool_name="shell_command",
+                arguments={"command": decision.command, "cwd": str(settings.workspace_dir)},
+            )
+        elif decision.action == "load_knowledge":
+            invocation = ToolInvocation(
+                tool_name="knowledge_load",
+                arguments={"topic": decision.topic},
+            )
+        else:
+            invocation = ToolInvocation(
+                tool_name=decision.tool_name,
+                arguments=decision.tool_input,
+            )
+        tool_result = tool_registry.invoke(invocation)
+        payload = tool_result.payload
+        if decision.action == "run_command":
+            last_result = (
+                f"command={payload.get('command', [])} exit_code={payload.get('exit_code')} "
+                f"timed_out={payload.get('timed_out')}"
+            )
+            final_output = str(payload.get("stdout") or payload.get("stderr") or "(no output)")
+        elif decision.action == "load_knowledge":
+            last_result = tool_result.summary
+            final_output = str(payload.get("content", ""))
+        else:
+            last_result = tool_result.summary
+            final_output = _format_tool_payload(tool_result.to_dict())
         return {
             **state,
             "last_result": last_result,
             "final_output": final_output,
-            "execution_trace": state["execution_trace"] + ["tool_execute"],
-            "loop_status": "step_executed",
-        }
-
-    def knowledge_execute(state: AgentGraphState) -> AgentGraphState:
-        decision = RuntimeDecision.model_validate(state["decision"])
-        message = knowledge_loader.load_topic(decision.topic)
-        return {
-            **state,
-            "loaded_knowledge": message.content,
-            "final_output": message.content,
-            "execution_trace": state["execution_trace"] + ["knowledge_execute"],
+            "loaded_knowledge": str(payload.get("content", state["loaded_knowledge"]))
+            if decision.action == "load_knowledge"
+            else state["loaded_knowledge"],
+            "tool_results": state["tool_results"] + [tool_result.to_dict()],
+            "execution_trace": state["execution_trace"] + [f"tool_execute:{tool_result.tool_name}"],
             "loop_status": "step_executed",
         }
 
@@ -298,10 +318,12 @@ def _build_graph(
     def route_after_model(state: AgentGraphState) -> str:
         decision = RuntimeDecision.model_validate(state["decision"])
         if decision.action == "load_knowledge":
-            return "knowledge_execute"
+            return "tool_execute"
         if decision.action == "run_command":
             if decision.requires_approval and not state["approved"]:
                 return "approval_gate"
+            return "tool_execute"
+        if decision.action == "use_tool":
             return "tool_execute"
         return "respond_directly"
 
@@ -379,7 +401,6 @@ def _build_graph(
     graph_builder.add_node("background_reentry", background_reentry)
     graph_builder.add_node("approval_gate", approval_gate)
     graph_builder.add_node("tool_execute", tool_execute)
-    graph_builder.add_node("knowledge_execute", knowledge_execute)
     graph_builder.add_node("respond_directly", respond_directly)
     graph_builder.add_node("finalize_iteration", finalize_iteration)
     graph_builder.add_edge(START, "initialize_loop")
@@ -388,7 +409,6 @@ def _build_graph(
     graph_builder.add_edge("approval_gate", END)
     graph_builder.add_edge("background_reentry", "finalize_iteration")
     graph_builder.add_edge("tool_execute", "finalize_iteration")
-    graph_builder.add_edge("knowledge_execute", "finalize_iteration")
     graph_builder.add_edge("respond_directly", "finalize_iteration")
     graph_builder.add_conditional_edges("finalize_iteration", route_after_finalize)
     return graph_builder.compile(checkpointer=MemorySaver())
@@ -470,6 +490,75 @@ def _decide_from_task(user_task: str) -> dict[str, object]:
             "response": "",
             "command": command,
             "requires_approval": False,
+            "tool_name": "",
+            "tool_input": {},
+        }
+
+    if user_task.startswith("search:"):
+        pattern = user_task.split(":", 1)[1].strip()
+        return {
+            "action": "use_tool",
+            "topic": "",
+            "response": "",
+            "command": [],
+            "requires_approval": False,
+            "tool_name": "repo_search",
+            "tool_input": {"pattern": pattern},
+        }
+
+    if user_task.startswith("read:"):
+        path = user_task.split(":", 1)[1].strip()
+        return {
+            "action": "use_tool",
+            "topic": "",
+            "response": "",
+            "command": [],
+            "requires_approval": False,
+            "tool_name": "file_read",
+            "tool_input": {"path": path},
+        }
+
+    if user_task.startswith("write:"):
+        raw_payload = user_task.split(":", 1)[1].strip()
+        path, _, content = raw_payload.partition("=>")
+        return {
+            "action": "use_tool",
+            "topic": "",
+            "response": "",
+            "command": [],
+            "requires_approval": False,
+            "tool_name": "file_write",
+            "tool_input": {"path": path.strip(), "content": content.lstrip()},
+        }
+
+    if user_task.startswith("patch:"):
+        raw_payload = user_task.split(":", 1)[1].strip()
+        path, _, remainder = raw_payload.partition("=>")
+        target, _, replacement = remainder.partition(">>")
+        return {
+            "action": "use_tool",
+            "topic": "",
+            "response": "",
+            "command": [],
+            "requires_approval": False,
+            "tool_name": "file_patch",
+            "tool_input": {
+                "path": path.strip(),
+                "target": target.strip(),
+                "replacement": replacement.lstrip(),
+            },
+        }
+
+    if user_task.startswith("test:"):
+        command_text = user_task.split(":", 1)[1].strip()
+        return {
+            "action": "use_tool",
+            "topic": "",
+            "response": "",
+            "command": [],
+            "requires_approval": False,
+            "tool_name": "test_run",
+            "tool_input": {"command": command_text},
         }
 
     return {
@@ -477,10 +566,12 @@ def _decide_from_task(user_task: str) -> dict[str, object]:
         "topic": "",
         "response": (
             "No tool or knowledge action selected. "
-            "Use `run: <command>` or `knowledge: <topic>`."
+            "Use `run:`, `knowledge:`, `search:`, `read:`, `write:`, `patch:`, or `test:`."
         ),
         "command": [],
         "requires_approval": False,
+        "tool_name": "",
+        "tool_input": {},
     }
 
 
@@ -490,15 +581,31 @@ def build_runtime(
     knowledge_loader: KnowledgeLoader,
     background_manager: BackgroundExecutionManager,
     approval_policy: CommandApprovalPolicy,
+    tool_registry: ToolRegistry,
 ) -> RuntimeBootstrap:
     """Build the advanced LangGraph runtime shell."""
 
-    graph = _build_graph(settings, executor, knowledge_loader, background_manager, approval_policy)
+    graph = _build_graph(
+        settings,
+        executor,
+        knowledge_loader,
+        background_manager,
+        approval_policy,
+        tool_registry,
+    )
     return RuntimeBootstrap(
         settings=settings,
         executor=executor,
         knowledge_loader=knowledge_loader,
         background_manager=background_manager,
         approval_policy=approval_policy,
+        tool_registry=tool_registry,
         graph=graph,
     )
+
+
+def _format_tool_payload(tool_result: dict[str, object]) -> str:
+    """Render a tool result payload into a compact readable string."""
+
+    payload = tool_result.get("payload", {})
+    return json.dumps(payload, indent=2, sort_keys=True)

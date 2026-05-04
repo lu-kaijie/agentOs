@@ -15,6 +15,7 @@ from agentos.policy import CommandApprovalPolicy
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
 from agentos.sessions import SessionManager
 from agentos.tasks import TaskManager
+from agentos.tools import ToolRegistry, build_default_tool_registry
 
 
 @dataclass(slots=True)
@@ -30,6 +31,7 @@ class AgentOsApp:
     background_manager: BackgroundExecutionManager
     workspace_manager: WorkspaceManager
     coordination_manager: CoordinationManager
+    tool_registry: ToolRegistry
 
     @classmethod
     def bootstrap(cls) -> "AgentOsApp":
@@ -44,12 +46,18 @@ class AgentOsApp:
         workspace_manager = WorkspaceManager(settings.workspaces_dir)
         coordination_manager = CoordinationManager(settings.coordination_dir)
         approval_policy = CommandApprovalPolicy()
+        tool_registry = build_default_tool_registry(
+            workspace_dir=settings.workspace_dir,
+            executor=executor,
+            knowledge_loader=knowledge_loader,
+        )
         runtime = build_runtime(
             settings,
             executor=executor,
             knowledge_loader=knowledge_loader,
             background_manager=background_manager,
             approval_policy=approval_policy,
+            tool_registry=tool_registry,
         )
         task_manager = TaskManager(settings.tasks_dir)
         return cls(
@@ -62,6 +70,7 @@ class AgentOsApp:
             background_manager=background_manager,
             workspace_manager=workspace_manager,
             coordination_manager=coordination_manager,
+            tool_registry=tool_registry,
         )
 
     def status(self) -> dict[str, str]:

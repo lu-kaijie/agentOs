@@ -10,8 +10,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agentos.app import AgentOsApp
 from agentos.coordination.models import WorkUnitStatus
-from agentos.harness.execution import ExecutionRequest
 from agentos.tasks.models import TaskStatus
+from agentos.tools import ToolInvocation
 
 app = typer.Typer(
     add_completion=False,
@@ -53,20 +53,13 @@ def exec_command(command: list[str] = typer.Argument(..., help="Command to execu
     """Execute a command through the harness boundary."""
 
     application = AgentOsApp.bootstrap()
-    request = ExecutionRequest(
-        command=command,
-        cwd=str(application.settings.workspace_dir),
+    result = application.tool_registry.invoke(
+        ToolInvocation(
+            tool_name="shell_command",
+            arguments={"command": command, "cwd": str(application.settings.workspace_dir)},
+        )
     )
-    result = application.runtime.executor.run(request)
-    payload = {
-        "command": result.command,
-        "cwd": result.cwd,
-        "exit_code": result.exit_code,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "timed_out": result.timed_out,
-    }
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
 
 
 @app.command("bg-run")
@@ -236,13 +229,10 @@ def knowledge_load(topic: str = typer.Argument(..., help="Knowledge topic to loa
     """Load a single knowledge topic on demand."""
 
     application = AgentOsApp.bootstrap()
-    message = application.knowledge_loader.load_topic(topic)
-    payload = {
-        "topic": message.additional_kwargs.get("topic", topic),
-        "source": message.additional_kwargs.get("source", ""),
-        "content": message.content,
-    }
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    result = application.tool_registry.invoke(
+        ToolInvocation(tool_name="knowledge_load", arguments={"topic": topic})
+    )
+    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
 
 
 @app.command("context-demo")
@@ -280,6 +270,31 @@ def sessions() -> None:
 
     application = AgentOsApp.bootstrap()
     typer.echo(json.dumps(application.session_manager.summary(), indent=2, sort_keys=True))
+
+
+@app.command("tool-list")
+def tool_list() -> None:
+    """List registered coding-agent tools."""
+
+    application = AgentOsApp.bootstrap()
+    payload = {"tools": application.tool_registry.list_tools()}
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("tool-run")
+def tool_run(
+    tool_name: str = typer.Argument(..., help="Registered tool name."),
+    argument: list[str] = typer.Option(None, "--arg", help="Tool argument in key=value form."),
+) -> None:
+    """Run one registered tool through the structured tool registry."""
+
+    application = AgentOsApp.bootstrap()
+    arguments: dict[str, object] = {}
+    for item in argument or []:
+        key, _, value = item.partition("=")
+        arguments[key] = value
+    result = application.tool_registry.invoke(ToolInvocation(tool_name=tool_name, arguments=arguments))
+    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
 
 
 @app.command("session-show")

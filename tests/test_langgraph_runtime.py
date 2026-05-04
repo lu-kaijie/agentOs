@@ -17,12 +17,13 @@ def test_runtime_runs_tool_enabled_task():
     state = app.runtime.run_task("run: pwd")
 
     assert state["user_task"] == "run: pwd"
-    assert state["final_output"].endswith("agentOs")
+    assert state["final_output"].strip().endswith("agentOs")
     assert "exit_code=0" in state["last_result"]
-    assert "tool_execute" in state["execution_trace"]
+    assert "tool_execute:shell_command" in state["execution_trace"]
     assert "finalize_iteration" in state["execution_trace"]
     assert state["decision"]["action"] == "run_command"
     assert state["approval_policy"]["matched_rule"] == "safe-command"
+    assert state["tool_results"][0]["tool_name"] == "shell_command"
     assert state["iteration_count"] == 1
     assert state["loop_status"] == "completed"
 
@@ -33,7 +34,7 @@ def test_runtime_returns_guidance_without_tool_call():
     state = app.runtime.run_task("say hello")
 
     assert state["decision"]["action"] == "respond"
-    assert "Use `run: <command>` or `knowledge: <topic>`." in state["final_output"]
+    assert "Use `run:`, `knowledge:`, `search:`, `read:`, `write:`, `patch:`, or `test:`." in state["final_output"]
 
 
 def test_runtime_loads_knowledge_topic():
@@ -43,7 +44,7 @@ def test_runtime_loads_knowledge_topic():
 
     assert state["decision"]["action"] == "load_knowledge"
     assert "[knowledge:langgraph-runtime]" in state["loaded_knowledge"]
-    assert "knowledge_execute" in state["execution_trace"]
+    assert "tool_execute:knowledge_load" in state["execution_trace"]
 
 
 def test_runtime_requires_approval_for_dangerous_command():
@@ -120,6 +121,6 @@ def test_runtime_reenters_completed_background_results(tmp_path: Path, monkeypat
     assert state["consumed_background_jobs"] == [job.id]
     assert "background_reentry" in state["execution_trace"]
     assert "background_results_detected=1" in state["execution_trace"]
-    assert "knowledge_execute" in state["execution_trace"]
+    assert "tool_execute:knowledge_load" in state["execution_trace"]
     assert "[knowledge:langgraph-runtime]" in state["final_output"]
     assert state["completed_tasks"][0] == f"background_result:{job.id}"

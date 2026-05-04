@@ -7,10 +7,10 @@
 
 ## 2. Structured Tool Registry
 
-- [ ] 2.1 Define a standard tool registry interface and migrate existing execution paths onto it
-- [ ] 2.2 Add a first coding-oriented tool set covering repository search, file read, patch or write, and test execution
-- [ ] 2.3 Connect structured tool results back into runtime state for later role or loop steps
-- [ ] 2.4 Add tests or demos that show a coding task using multiple registered tools end-to-end
+- [x] 2.1 Define a standard tool registry interface and migrate existing execution paths onto it
+- [x] 2.2 Add a first coding-oriented tool set covering repository search, file read, patch or write, and test execution
+- [x] 2.3 Connect structured tool results back into runtime state for later role or loop steps
+- [x] 2.4 Add tests or demos that show a coding task using multiple registered tools end-to-end
 
 ## 3. Advanced Context Engineering
 

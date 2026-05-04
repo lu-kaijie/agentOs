@@ -38,9 +38,9 @@ def test_exec_command_uses_harness_boundary():
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["exit_code"] == 0
-    assert payload["timed_out"] is False
-    assert payload["command"] == ["pwd"]
+    assert payload["payload"]["exit_code"] == 0
+    assert payload["payload"]["timed_out"] is False
+    assert payload["payload"]["command"] == ["pwd"]
 
 
 def test_run_command_persists_session_and_lists_it(tmp_path, monkeypatch):
@@ -84,6 +84,24 @@ def test_resume_reuses_persisted_session_state(tmp_path, monkeypatch):
     assert "say again" in resumed.stdout
 
 
+def test_tool_list_and_tool_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    (tmp_path / "sample.txt").write_text("hello tool registry", encoding="utf-8")
+
+    listing = runner.invoke(app, ["tool-list"])
+    assert listing.exit_code == 0
+    listing_payload = json.loads(listing.stdout)
+    names = [item["name"] for item in listing_payload["tools"]]
+    assert "file_read" in names
+    assert "file_patch" in names
+    assert "repo_search" in names
+
+    result = runner.invoke(app, ["tool-run", "file_read", "--arg", "path=sample.txt"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["payload"]["content"] == "hello tool registry"
+
+
 def test_resume_polls_and_consumes_background_result(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
     monkeypatch.setenv("AGENTOS_BACKGROUND_DIR", str(tmp_path / "background"))
@@ -122,7 +140,33 @@ def test_resume_polls_and_consumes_background_result(tmp_path, monkeypatch):
     assert resumed.exit_code == 0
     assert "agentOs resumed session." in resumed.stdout
     assert "background_reentry" in resumed.stdout
-    assert "knowledge_execute" in resumed.stdout
+    assert "tool_execute:knowledge_load" in resumed.stdout
+
+
+def test_runtime_multi_tool_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("AGENTOS_KNOWLEDGE_DIR", str(tmp_path / "knowledge"))
+    (tmp_path / "README.md").write_text("Tool registry demo\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "steps: search: Tool registry | read: README.md | write: notes.txt => alpha beta | patch: notes.txt => beta >> gamma | test: python -c print(456)",
+            "--session-id",
+            "tool-demo",
+            "--max-iterations",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert '"tool_name": "repo_search"' in result.stdout
+    assert '"tool_name": "file_read"' in result.stdout
+    assert '"tool_name": "file_write"' in result.stdout
+    assert '"tool_name": "file_patch"' in result.stdout
+    assert '"tool_name": "test_run"' in result.stdout
+    assert '"stdout": "456\\n"' in result.stdout
 
 
 def test_session_show_reflects_replayed_progress_after_resume(tmp_path, monkeypatch):
