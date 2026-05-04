@@ -22,6 +22,7 @@ def test_status_command_outputs_bootstrap_payload():
     assert payload["background_jobs_dir"].endswith(".agentos/background")
     assert payload["workspaces_dir"].endswith(".agentos/workspaces")
     assert payload["coordination_dir"].endswith(".agentos/coordination")
+    assert payload["model_configured"] in {"true", "false"}
 
 
 def test_run_command_announces_runtime_shell():
@@ -238,6 +239,60 @@ def test_runtime_role_based_flow(tmp_path, monkeypatch):
     assert '"role": "executor"' in result.stdout
     assert '"role": "reviewer"' in result.stdout
     assert '"reviewed_tool_count"' in result.stdout
+
+
+def test_run_command_supports_model_backed_path(monkeypatch):
+    from agentos.runtime.model_backed import ModelBackedAgentRuntime
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
+    monkeypatch.setattr(
+        ModelBackedAgentRuntime,
+        "run_turn",
+        lambda self, **kwargs: {
+            "planner_summary": "plan",
+            "planner_steps": ["read code", "run tests"],
+            "executor_output": "model executor output",
+            "reviewer_summary": "model reviewer summary",
+            "reviewer_follow_up_needed": False,
+            "tool_results": [{"tool_name": "file_read", "summary": "read", "payload": {}}],
+            "message_count": 2,
+        },
+    )
+
+    result = runner.invoke(app, ["run", "inspect README and summarize", "--model", "--session-id", "model-run"])
+
+    assert result.exit_code == 0
+    assert '"action": "model_backed_turn"' in result.stdout
+    assert "model executor output" in result.stdout
+
+
+def test_shell_uses_model_backed_mode_for_natural_language(monkeypatch):
+    from agentos.runtime.model_backed import ModelBackedAgentRuntime
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
+    monkeypatch.setattr(
+        ModelBackedAgentRuntime,
+        "run_turn",
+        lambda self, **kwargs: {
+            "planner_summary": "plan",
+            "planner_steps": ["inspect", "edit"],
+            "executor_output": "model shell output",
+            "reviewer_summary": "looks good",
+            "reviewer_follow_up_needed": False,
+            "tool_results": [],
+            "message_count": 2,
+        },
+    )
+
+    result = runner.invoke(
+        app,
+        ["shell", "--session-id", "model-shell"],
+        input="please inspect the repo\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "[mode] model-backed" in result.stdout
+    assert "model shell output" in result.stdout
 
 
 def test_session_show_reflects_replayed_progress_after_resume(tmp_path, monkeypatch):

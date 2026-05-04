@@ -24,6 +24,9 @@ class Settings:
     coordination_dir: Path
     model_provider: str
     model_name: str
+    openai_api_key: str
+    openai_base_url: str
+    model_enabled: bool
 
     @classmethod
     def load(cls) -> "Settings":
@@ -47,6 +50,9 @@ class Settings:
         )
         model_provider = os.getenv("AGENTOS_MODEL_PROVIDER", "openai")
         model_name = os.getenv("AGENTOS_MODEL", "gpt-4.1-mini")
+        openai_api_key = os.getenv("OPENAI_API_KEY", "")
+        openai_base_url = os.getenv("OPENAI_BASE_URL", "")
+        model_enabled = os.getenv("AGENTOS_MODEL_ENABLED", "1").lower() not in {"0", "false", "no"}
         return cls(
             project_root=project_root,
             workspace_dir=workspace_dir,
@@ -59,4 +65,7 @@ class Settings:
             coordination_dir=coordination_dir,
             model_provider=model_provider,
             model_name=model_name,
+            openai_api_key=openai_api_key,
+            openai_base_url=openai_base_url,
+            model_enabled=model_enabled,
         )

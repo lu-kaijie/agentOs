@@ -72,6 +72,11 @@ def _shell_status_line(state: dict[str, object]) -> str:
     )
 
 
+def _looks_like_legacy_task(task: str) -> bool:
+    prefixes = ("run:", "knowledge:", "search:", "read:", "write:", "patch:", "test:", "steps:", "code:")
+    return task.strip().startswith(prefixes)
+
+
 def _unit_summary_lines(summary: dict[str, object], *, unit_id: int | None = None) -> list[str]:
     units = summary.get("units", [])
     if not isinstance(units, list):
@@ -118,16 +123,28 @@ def run(
     session_id: str = typer.Option("default", "--session-id", help="Runtime session id."),
     approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
     max_iterations: int = typer.Option(5, "--max-iterations", min=1, help="Bounded runtime loop limit."),
+    model: bool = typer.Option(False, "--model", help="Use the real model-backed runtime path."),
 ) -> None:
     """Run the current LangGraph runtime with a task string."""
 
     application = AgentOsApp.bootstrap()
-    state = application.run_session_task(
-        task,
-        session_id=session_id,
-        approve=approve,
-        max_iterations=max_iterations,
-    )
+    try:
+        if model:
+            state = application.run_model_session_task(
+                task,
+                session_id=session_id,
+                approve=approve,
+            )
+        else:
+            state = application.run_session_task(
+                task,
+                session_id=session_id,
+                approve=approve,
+                max_iterations=max_iterations,
+            )
+    except RuntimeError as exc:
+        typer.echo(f"model-backed runtime failed: {exc}")
+        raise typer.Exit(code=1) from exc
     _echo_state_report("agentOs LangGraph runtime executed.", state)
 
 
@@ -519,6 +536,22 @@ def shell(
             continue
 
         latest_state: dict[str, object] | None = None
+        if application.model_runtime.is_configured() and not _looks_like_legacy_task(command):
+            typer.echo("[mode] model-backed")
+            try:
+                latest_state = application.run_model_session_task(
+                    command,
+                    session_id=session_id,
+                    approve=approve,
+                )
+            except RuntimeError as exc:
+                typer.echo(f"model-backed runtime failed: {exc}")
+                continue
+            typer.echo(_shell_status_line(latest_state))
+            typer.echo("assistant>")
+            typer.echo(str(latest_state.get("final_output", "")).rstrip())
+            continue
+
         last_trace_len = -1
         for state in application.stream_session_task(
             command,

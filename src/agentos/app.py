@@ -13,6 +13,7 @@ from agentos.execution_control import BackgroundExecutionManager, WorkspaceManag
 from agentos.harness.execution import LocalCommandExecutor
 from agentos.knowledge import KnowledgeLoader
 from agentos.policy import CommandApprovalPolicy
+from agentos.runtime.model_backed import ModelBackedAgentRuntime
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
 from agentos.sessions import SessionManager
 from agentos.tasks import TaskManager
@@ -33,6 +34,7 @@ class AgentOsApp:
     workspace_manager: WorkspaceManager
     coordination_manager: CoordinationManager
     tool_registry: ToolRegistry
+    model_runtime: ModelBackedAgentRuntime
 
     @classmethod
     def bootstrap(cls) -> "AgentOsApp":
@@ -51,6 +53,12 @@ class AgentOsApp:
             workspace_dir=settings.workspace_dir,
             executor=executor,
             knowledge_loader=knowledge_loader,
+            approval_policy=approval_policy,
+        )
+        model_runtime = ModelBackedAgentRuntime(
+            settings=settings,
+            tool_registry=tool_registry,
+            context_manager=context_manager,
         )
         runtime = build_runtime(
             settings,
@@ -73,12 +81,15 @@ class AgentOsApp:
             workspace_manager=workspace_manager,
             coordination_manager=coordination_manager,
             tool_registry=tool_registry,
+            model_runtime=model_runtime,
         )
 
     def status(self) -> dict[str, str]:
         """Return a small status payload for CLI and tests."""
 
-        return self.runtime.summary()
+        payload = self.runtime.summary()
+        payload["model_configured"] = "true" if self.model_runtime.is_configured() else "false"
+        return payload
 
     def run_session_task(
         self,
@@ -96,6 +107,170 @@ class AgentOsApp:
             max_iterations=max_iterations,
             state_override=state_override,
         )
+        self.session_manager.record_turn(
+            session_id=session_id,
+            user_task=task,
+            state=state,
+            workspace_dir=str(self.settings.workspace_dir),
+        )
+        return state
+
+    def run_model_session_task(
+        self,
+        task: str,
+        *,
+        session_id: str,
+        approve: bool = False,
+    ) -> dict[str, object]:
+        try:
+            latest_turn = self.session_manager.load_latest_turn(session_id)
+            prior_state = dict(latest_turn["state"])
+        except FileNotFoundError:
+            prior_state = {
+                "completed_tasks": [],
+                "step_outputs": [],
+                "tool_results": [],
+                "execution_trace": [],
+            }
+
+        planner_bundle, planner_record = self.context_manager.policy_runtime.build_bundle(
+            session_id=session_id,
+            role="planner",
+            task=task,
+            state=prior_state,
+            workspace_dir=self.settings.workspace_dir,
+        )
+        executor_bundle, executor_record = self.context_manager.policy_runtime.build_bundle(
+            session_id=session_id,
+            role="executor",
+            task=task,
+            state=prior_state,
+            workspace_dir=self.settings.workspace_dir,
+        )
+        reviewer_bundle, reviewer_record = self.context_manager.policy_runtime.build_bundle(
+            session_id=session_id,
+            role="reviewer",
+            task=task,
+            state=prior_state,
+            workspace_dir=self.settings.workspace_dir,
+        )
+
+        result = self.model_runtime.run_turn(
+            session_id=session_id,
+            user_task=task,
+            context_bundles={
+                "planner": planner_bundle,
+                "executor": executor_bundle,
+                "reviewer": reviewer_bundle,
+            },
+            tool_results=list(prior_state.get("tool_results", [])),
+            approved=approve,
+        )
+        used_model_name = str(result.get("model_name", self.settings.model_name))
+
+        role_records = [
+            {
+                "role": "planner",
+                "task": task,
+                "summary": result["planner_summary"],
+                "status": "ok",
+                "metadata": {"planned_steps": result["planner_steps"]},
+            },
+            {
+                "role": "executor",
+                "task": task,
+                "summary": result["executor_output"],
+                "status": "ok",
+                "metadata": {
+                    "tool_result_count": len(result["tool_results"]),
+                    "message_count": result["message_count"],
+                },
+            },
+            {
+                "role": "reviewer",
+                "task": task,
+                "summary": result["reviewer_summary"],
+                "status": "ok",
+                "metadata": {
+                    "follow_up_needed": result["reviewer_follow_up_needed"],
+                },
+            },
+        ]
+        role_handoffs = [
+            {
+                "source_role": "planner",
+                "target_role": "executor",
+                "task": task,
+                "summary": "Planner routed the real-model coding turn to executor tools.",
+                "context_sources": planner_bundle.get("sources", []),
+                "tool_result_refs": [],
+            },
+            {
+                "source_role": "executor",
+                "target_role": "reviewer",
+                "task": task,
+                "summary": "Executor completed a bounded model-backed turn and handed results to reviewer.",
+                "context_sources": executor_bundle.get("sources", []),
+                "tool_result_refs": [
+                    str(item.get("tool_name", "unknown"))
+                    for item in result["tool_results"][-3:]
+                    if isinstance(item, dict)
+                ],
+            },
+        ]
+        final_output = result["executor_output"].strip()
+        if result["reviewer_summary"]:
+            final_output = (
+                f"{final_output}\n\n[reviewer]\n{result['reviewer_summary']}".strip()
+            )
+        state = {
+            "user_task": task,
+            "session_id": session_id,
+            "pending_tasks": [],
+            "active_task": task,
+            "completed_tasks": [
+                f"role:planner:{task}",
+                f"role:executor:{task}",
+                f"role:reviewer:{task}",
+            ],
+            "step_outputs": [
+                result["planner_summary"],
+                result["executor_output"],
+                result["reviewer_summary"],
+            ],
+            "decision": {"action": "model_backed_turn", "mode": "langgraph-react"},
+            "background_results": [],
+            "consumed_background_jobs": [],
+            "next_pending_tasks": [],
+            "approval_policy": {},
+            "tool_results": result["tool_results"],
+            "context_bundle": reviewer_bundle,
+            "context_policy_records": [
+                planner_record.to_dict(),
+                executor_record.to_dict(),
+                reviewer_record.to_dict(),
+            ],
+            "current_role": "reviewer",
+            "role_records": role_records,
+            "role_handoffs": role_handoffs,
+            "last_result": result["reviewer_summary"],
+            "final_output": final_output,
+            "loaded_knowledge": "",
+            "execution_trace": [
+                "prepare_context",
+                f"model_selected={used_model_name}",
+                "planner_model",
+                f"planner_steps={len(result['planner_steps'])}",
+                "executor_model",
+                f"executor_tools={len(result['tool_results'])}",
+                "reviewer_model",
+                "model_backed_completed",
+            ],
+            "approved": approve,
+            "iteration_count": 3,
+            "max_iterations": 3,
+            "loop_status": "completed",
+        }
         self.session_manager.record_turn(
             session_id=session_id,
             user_task=task,

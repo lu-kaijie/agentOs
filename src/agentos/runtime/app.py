@@ -412,7 +412,11 @@ def _build_graph(
         if decision.action == "run_command":
             invocation = ToolInvocation(
                 tool_name="shell_command",
-                arguments={"command": decision.command, "cwd": str(settings.workspace_dir)},
+                arguments={
+                    "command": decision.command,
+                    "cwd": str(settings.workspace_dir),
+                    "_approved": state["approved"],
+                },
             )
         elif decision.action == "load_knowledge":
             invocation = ToolInvocation(
@@ -422,7 +426,7 @@ def _build_graph(
         else:
             invocation = ToolInvocation(
                 tool_name=decision.tool_name,
-                arguments=decision.tool_input,
+                arguments={**decision.tool_input, "_approved": state["approved"]},
             )
         tool_result = tool_registry.invoke(invocation)
         payload = tool_result.payload

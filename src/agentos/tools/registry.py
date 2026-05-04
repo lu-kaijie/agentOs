@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import shlex
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +14,13 @@ from pydantic import BaseModel, Field
 
 from agentos.harness.execution import CommandExecutor, ExecutionRequest
 from agentos.knowledge import KnowledgeLoader
+from agentos.policy import CommandApprovalPolicy
 from agentos.tools.models import ToolInvocation, ToolResult
+
+_TOOL_RUNTIME_OPTIONS: ContextVar[dict[str, object]] = ContextVar(
+    "tool_runtime_options",
+    default={"approved": False, "collector": None},
+)
 
 
 @dataclass(slots=True)
@@ -22,6 +30,7 @@ class ToolContext:
     workspace_dir: Path
     executor: CommandExecutor
     knowledge_loader: KnowledgeLoader
+    approval_policy: CommandApprovalPolicy
 
 
 class ShellCommandArgs(BaseModel):
@@ -77,8 +86,13 @@ class ToolRegistry:
         return [self._tools[name] for name in sorted(self._tools)]
 
     def invoke(self, invocation: ToolInvocation) -> ToolResult:
+        arguments = dict(invocation.arguments)
+        approved = bool(arguments.pop("_approved", False))
+        existing = _TOOL_RUNTIME_OPTIONS.get({})
+        collector = existing.get("collector")
         tool = self.get_tool(invocation.tool_name)
-        payload = tool.invoke(invocation.arguments)
+        with tool_runtime_context(approved=approved, collector=collector):
+            payload = tool.invoke(arguments)
         if not isinstance(payload, dict):
             payload = {"content": payload}
         status = str(payload.pop("_status", "ok"))
@@ -91,6 +105,7 @@ def build_default_tool_registry(
     workspace_dir: Path,
     executor: CommandExecutor,
     knowledge_loader: KnowledgeLoader,
+    approval_policy: CommandApprovalPolicy,
 ) -> ToolRegistry:
     """Create the built-in LangChain tool runtime for this milestone."""
 
@@ -98,11 +113,23 @@ def build_default_tool_registry(
         workspace_dir=Path(workspace_dir).resolve(),
         executor=executor,
         knowledge_loader=knowledge_loader,
+        approval_policy=approval_policy,
     )
 
     def shell_command(command: list[str], cwd: str) -> dict[str, object]:
+        policy = context.approval_policy.evaluate(command)
+        if policy.requires_approval and not _tool_runtime_options().get("approved", False):
+            payload = {
+                "_status": "blocked",
+                "_summary": f"approval required for command '{command[0]}'",
+                "command": command,
+                "cwd": cwd,
+                "policy": policy.to_dict(),
+            }
+            _emit_tool_record("shell_command", "blocked", payload)
+            return payload
         result = context.executor.run(ExecutionRequest(command=command, cwd=cwd))
-        return {
+        payload = {
             "_summary": f"exit_code={result.exit_code} timed_out={result.timed_out}",
             "command": result.command,
             "cwd": result.cwd,
@@ -111,15 +138,19 @@ def build_default_tool_registry(
             "stderr": result.stderr,
             "timed_out": result.timed_out,
         }
+        _emit_tool_record("shell_command", "ok", payload)
+        return payload
 
     def knowledge_load(topic: str) -> dict[str, object]:
         message = context.knowledge_loader.load_topic(topic)
-        return {
+        payload = {
             "_summary": f"loaded topic '{topic}'",
             "topic": message.additional_kwargs.get("topic", topic),
             "source": message.additional_kwargs.get("source", ""),
             "content": message.content,
         }
+        _emit_tool_record("knowledge_load", "ok", payload)
+        return payload
 
     def repo_search(pattern: str) -> dict[str, object]:
         if not pattern:
@@ -128,7 +159,7 @@ def build_default_tool_registry(
             result = context.executor.run(
                 ExecutionRequest(command=["rg", "-n", pattern, "."], cwd=str(context.workspace_dir))
             )
-            return {
+            payload = {
                 "_summary": f"search pattern='{pattern}' exit_code={result.exit_code}",
                 "pattern": pattern,
                 "engine": "rg",
@@ -137,9 +168,11 @@ def build_default_tool_registry(
                 "stderr": result.stderr,
                 "timed_out": result.timed_out,
             }
+            _emit_tool_record("repo_search", "ok", payload)
+            return payload
         except FileNotFoundError:
             stdout = _search_workspace_without_rg(context.workspace_dir, pattern)
-            return {
+            payload = {
                 "_summary": f"search pattern='{pattern}' exit_code={0 if stdout else 1}",
                 "pattern": pattern,
                 "engine": "python",
@@ -148,24 +181,30 @@ def build_default_tool_registry(
                 "stderr": "",
                 "timed_out": False,
             }
+            _emit_tool_record("repo_search", "ok", payload)
+            return payload
 
     def file_read(path: str) -> dict[str, object]:
         resolved = _resolve_workspace_path(context.workspace_dir, path)
-        return {
+        payload = {
             "_summary": f"read '{resolved.name}'",
             "path": str(resolved),
             "content": resolved.read_text(encoding="utf-8"),
         }
+        _emit_tool_record("file_read", "ok", payload)
+        return payload
 
     def file_write(path: str, content: str) -> dict[str, object]:
         resolved = _resolve_workspace_path(context.workspace_dir, path)
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
-        return {
+        payload = {
             "_summary": f"wrote '{resolved.name}'",
             "path": str(resolved),
             "bytes_written": len(content.encode("utf-8")),
         }
+        _emit_tool_record("file_write", "ok", payload)
+        return payload
 
     def file_patch(path: str, target: str, replacement: str) -> dict[str, object]:
         resolved = _resolve_workspace_path(context.workspace_dir, path)
@@ -177,13 +216,15 @@ def build_default_tool_registry(
             raise ValueError(f"target text not found in '{resolved.name}'")
         updated = content.replace(target, replacement, 1)
         resolved.write_text(updated, encoding="utf-8")
-        return {
+        payload = {
             "_summary": f"patched '{resolved.name}'",
             "path": str(resolved),
             "target": target,
             "replacement": replacement,
             "replacement_count": replacement_count,
         }
+        _emit_tool_record("file_patch", "ok", payload)
+        return payload
 
     def test_run(command: str) -> dict[str, object]:
         command_text = command.strip()
@@ -192,10 +233,21 @@ def build_default_tool_registry(
         argv = shlex.split(command_text)
         if argv and argv[0] == "python":
             argv[0] = sys.executable
+        policy = context.approval_policy.evaluate(argv)
+        if policy.requires_approval and not _tool_runtime_options().get("approved", False):
+            payload = {
+                "_status": "blocked",
+                "_summary": f"approval required for command '{argv[0]}'",
+                "command": argv,
+                "cwd": str(context.workspace_dir),
+                "policy": policy.to_dict(),
+            }
+            _emit_tool_record("test_run", "blocked", payload)
+            return payload
         result = context.executor.run(
             ExecutionRequest(command=argv, cwd=str(context.workspace_dir))
         )
-        return {
+        payload = {
             "_summary": f"test command exit_code={result.exit_code}",
             "command": argv,
             "cwd": result.cwd,
@@ -204,6 +256,8 @@ def build_default_tool_registry(
             "stderr": result.stderr,
             "timed_out": result.timed_out,
         }
+        _emit_tool_record("test_run", "ok", payload)
+        return payload
 
     tools = [
         StructuredTool.from_function(
@@ -278,3 +332,37 @@ def _search_workspace_without_rg(workspace_dir: Path, pattern: str) -> str:
                 rel_path = path.relative_to(workspace_dir)
                 matches.append(f"./{rel_path}:{line_number}:{line}")
     return "\n".join(matches) + ("\n" if matches else "")
+
+
+@contextmanager
+def tool_runtime_context(
+    *,
+    approved: bool = False,
+    collector: list[dict[str, object]] | None = None,
+):
+    """Set per-turn tool runtime options for LangChain-native invocations."""
+
+    token = _TOOL_RUNTIME_OPTIONS.set({"approved": approved, "collector": collector})
+    try:
+        yield
+    finally:
+        _TOOL_RUNTIME_OPTIONS.reset(token)
+
+
+def _tool_runtime_options() -> dict[str, object]:
+    return dict(_TOOL_RUNTIME_OPTIONS.get({}))
+
+
+def _emit_tool_record(tool_name: str, status: str, payload: dict[str, object]) -> None:
+    options = _tool_runtime_options()
+    collector = options.get("collector")
+    if not isinstance(collector, list):
+        return
+    collector.append(
+        ToolResult(
+            tool_name=tool_name,
+            status=status,
+            summary=str(payload.get("_summary", f"{tool_name} completed")),
+            payload={key: value for key, value in payload.items() if not key.startswith("_")},
+        ).to_dict()
+    )

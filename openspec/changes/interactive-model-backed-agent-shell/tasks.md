@@ -24,9 +24,9 @@
 
 ## 5. Real Model Runtime Integration
 
-- [ ] 5.1 Add a real model-backed runtime path that can call the configured provider with valid API credentials
-- [ ] 5.2 Connect the persistent shell plus at least one bounded planner/executor/reviewer workflow to real model reasoning and tool usage
-- [ ] 5.3 Add explicit configuration, fallback, and integration tests or demos for model-enabled runs
+- [x] 5.1 Add a real model-backed runtime path that can call the configured provider with valid API credentials
+- [x] 5.2 Connect the persistent shell plus at least one bounded planner/executor/reviewer workflow to real model reasoning and tool usage
+- [x] 5.3 Add explicit configuration, fallback, and integration tests or demos for model-enabled runs
 
 ## 6. Integrated Agent Experience
 
