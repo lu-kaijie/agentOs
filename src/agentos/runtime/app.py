@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 from agentos.config import Settings
+from agentos.context import ContextManager
 from agentos.execution_control import BackgroundExecutionManager
 from agentos.harness.execution import CommandExecutor, ExecutionRequest
 from agentos.knowledge import KnowledgeLoader
@@ -50,6 +51,7 @@ class AgentGraphState(TypedDict):
     - next_pending_tasks: optional queue override produced by a node before finalize
     - approval_policy: inspectable approval policy output for command execution
     - tool_results: structured tool results accumulated across loop steps
+    - context_bundle: structured context prepared for the current decision step
     - last_result: summarized tool execution result for the current run
     - final_output: the final assistant-facing text
     - loaded_knowledge: knowledge content loaded on demand
@@ -72,6 +74,7 @@ class AgentGraphState(TypedDict):
     next_pending_tasks: list[str]
     approval_policy: dict[str, object]
     tool_results: list[dict[str, object]]
+    context_bundle: dict[str, object]
     last_result: str
     final_output: str
     loaded_knowledge: str
@@ -92,6 +95,7 @@ class RuntimeBootstrap:
     background_manager: BackgroundExecutionManager
     approval_policy: CommandApprovalPolicy
     tool_registry: ToolRegistry
+    context_manager: ContextManager
     graph: object
 
     def summary(self) -> dict[str, str]:
@@ -141,6 +145,7 @@ class RuntimeBootstrap:
             "execution_trace": [],
             "approved": approved,
             "tool_results": [],
+            "context_bundle": {},
             "iteration_count": 0,
             "max_iterations": max_iterations,
             "loop_status": "initialized",
@@ -164,6 +169,7 @@ def _build_graph(
     background_manager: BackgroundExecutionManager,
     approval_policy: CommandApprovalPolicy,
     tool_registry: ToolRegistry,
+    context_manager: ContextManager,
 ):
     """Build the advanced LangGraph runtime."""
 
@@ -180,10 +186,31 @@ def _build_graph(
         ]
     )
 
+    def prepare_context(state: AgentGraphState) -> AgentGraphState:
+        active_task = state["pending_tasks"][0]
+        bundle = context_manager.build_context_bundle(
+            session_id=state["session_id"],
+            task=active_task,
+            state=state,
+            workspace_dir=settings.workspace_dir,
+        )
+        return {
+            **state,
+            "active_task": active_task,
+            "context_bundle": bundle,
+            "execution_trace": state["execution_trace"]
+            + [
+                "prepare_context",
+                f"context_sources={','.join(bundle.get('sources', [])) or 'none'}",
+                f"context_task={active_task}",
+            ],
+            "loop_status": "context_ready",
+        }
+
     def model_decide(state: AgentGraphState) -> AgentGraphState:
         active_task = state["pending_tasks"][0]
         prompt_messages = decision_prompt.format_messages(
-            task=active_task,
+            task=_render_task_with_context(active_task, state["context_bundle"]),
             format_instructions=decision_parser.get_format_instructions(),
         )
         raw_decision = _decide_from_task(active_task)
@@ -386,17 +413,18 @@ def _build_graph(
             return END
         if state["pending_tasks"][0].startswith("background_result:"):
             return "background_reentry"
-        return "model_decide"
+        return "prepare_context"
 
     def route_after_finalize(state: AgentGraphState) -> str:
         if state["pending_tasks"] and state["iteration_count"] < state["max_iterations"]:
             if state["pending_tasks"][0].startswith("background_result:"):
                 return "background_reentry"
-            return "model_decide"
+            return "prepare_context"
         return END
 
     graph_builder = StateGraph(AgentGraphState)
     graph_builder.add_node("initialize_loop", initialize_loop)
+    graph_builder.add_node("prepare_context", prepare_context)
     graph_builder.add_node("model_decide", model_decide)
     graph_builder.add_node("background_reentry", background_reentry)
     graph_builder.add_node("approval_gate", approval_gate)
@@ -405,6 +433,7 @@ def _build_graph(
     graph_builder.add_node("finalize_iteration", finalize_iteration)
     graph_builder.add_edge(START, "initialize_loop")
     graph_builder.add_conditional_edges("initialize_loop", route_after_initialize)
+    graph_builder.add_edge("prepare_context", "model_decide")
     graph_builder.add_conditional_edges("model_decide", route_after_model)
     graph_builder.add_edge("approval_gate", END)
     graph_builder.add_edge("background_reentry", "finalize_iteration")
@@ -582,6 +611,7 @@ def build_runtime(
     background_manager: BackgroundExecutionManager,
     approval_policy: CommandApprovalPolicy,
     tool_registry: ToolRegistry,
+    context_manager: ContextManager,
 ) -> RuntimeBootstrap:
     """Build the advanced LangGraph runtime shell."""
 
@@ -592,6 +622,7 @@ def build_runtime(
         background_manager,
         approval_policy,
         tool_registry,
+        context_manager,
     )
     return RuntimeBootstrap(
         settings=settings,
@@ -600,6 +631,7 @@ def build_runtime(
         background_manager=background_manager,
         approval_policy=approval_policy,
         tool_registry=tool_registry,
+        context_manager=context_manager,
         graph=graph,
     )
 
@@ -609,3 +641,14 @@ def _format_tool_payload(tool_result: dict[str, object]) -> str:
 
     payload = tool_result.get("payload", {})
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _render_task_with_context(task: str, context_bundle: dict[str, object]) -> str:
+    """Inject a compact context preview into the model-facing task content."""
+
+    if not context_bundle:
+        return task
+    preview = str(context_bundle.get("bundle_preview", "")).strip()
+    if not preview:
+        return task
+    return f"{task}\n\nContext bundle:\n{preview}"

@@ -24,6 +24,8 @@ def test_runtime_runs_tool_enabled_task():
     assert state["decision"]["action"] == "run_command"
     assert state["approval_policy"]["matched_rule"] == "safe-command"
     assert state["tool_results"][0]["tool_name"] == "shell_command"
+    assert state["context_bundle"]["task_hints"]["action"] == "run"
+    assert "workspace" in state["context_bundle"]["sources"]
     assert state["iteration_count"] == 1
     assert state["loop_status"] == "completed"
 
@@ -124,3 +126,22 @@ def test_runtime_reenters_completed_background_results(tmp_path: Path, monkeypat
     assert "tool_execute:knowledge_load" in state["execution_trace"]
     assert "[knowledge:langgraph-runtime]" in state["final_output"]
     assert state["completed_tasks"][0] == f"background_result:{job.id}"
+
+
+def test_runtime_context_selection_changes_with_task_and_history_size(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    (tmp_path / "README.md").write_text("alpha beta gamma\n", encoding="utf-8")
+
+    app = AgentOsApp.bootstrap()
+    state = app.runtime.run_task(
+        "steps: read: README.md | search: alpha | say hello | say again | say once more",
+        max_iterations=5,
+    )
+
+    bundle = state["context_bundle"]
+
+    assert bundle["task"] == "say once more"
+    assert bundle["task_hints"]["action"] == "respond"
+    assert "history" in bundle["sources"]
+    assert "tool_results" in bundle["sources"]
+    assert "..." in bundle["history_summary"] or "..." in bundle["tool_summary"] or "..." in bundle["trace_summary"]

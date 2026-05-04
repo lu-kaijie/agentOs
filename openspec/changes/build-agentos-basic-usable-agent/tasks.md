@@ -14,10 +14,10 @@
 
 ## 3. Advanced Context Engineering
 
-- [ ] 3.1 Extend context management with task-aware selection and context bundle construction
-- [ ] 3.2 Add long-history compression or summarization for runtime and tool traces
-- [ ] 3.3 Introduce repository or workspace context signals that can be merged with message history
-- [ ] 3.4 Add tests or demos that show context selection changing based on task and history size
+- [x] 3.1 Extend context management with task-aware selection and context bundle construction
+- [x] 3.2 Add long-history compression or summarization for runtime and tool traces
+- [x] 3.3 Introduce repository or workspace context signals that can be merged with message history
+- [x] 3.4 Add tests or demos that show context selection changing based on task and history size
 
 ## 4. Role-Based Coding Workflow
 

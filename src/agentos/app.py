@@ -58,6 +58,7 @@ class AgentOsApp:
             background_manager=background_manager,
             approval_policy=approval_policy,
             tool_registry=tool_registry,
+            context_manager=context_manager,
         )
         task_manager = TaskManager(settings.tasks_dir)
         return cls(
