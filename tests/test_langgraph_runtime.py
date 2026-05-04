@@ -166,5 +166,22 @@ def test_runtime_runs_bounded_role_based_coding_workflow(tmp_path: Path, monkeyp
     assert "reviewer_role" in state["execution_trace"]
     assert state["completed_tasks"][0].startswith("role:planner:")
     assert state["completed_tasks"][-1].startswith("role:reviewer:")
-    assert state["role_records"][-1]["reviewed_tool_count"] >= 1
+    assert state["role_records"][-1]["metadata"]["reviewed_tool_count"] >= 1
     assert "Reviewer accepted" in state["final_output"]
+
+
+def test_runtime_persists_structured_role_handoffs(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    (tmp_path / "README.md").write_text("handoff workflow\n", encoding="utf-8")
+
+    app = AgentOsApp.bootstrap()
+    state = app.runtime.run_task(
+        "code: steps: read: README.md | test: python -c print(1)",
+        max_iterations=5,
+    )
+
+    assert state["role_handoffs"]
+    handoff = state["role_handoffs"][0]
+    assert handoff["source_role"] == "planner"
+    assert handoff["target_role"] == "executor"
+    assert "summary" in handoff

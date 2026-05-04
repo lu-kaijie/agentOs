@@ -6,9 +6,9 @@
 
 ## 2. Agent-Role Runtime Abstraction
 
-- [ ] 2.1 Introduce a bounded `RoleAgent` abstraction for planner, executor, and reviewer with explicit role input / output structures
-- [ ] 2.2 Refactor the current hardcoded planner / executor / reviewer functions to run through the shared role-agent protocol
-- [ ] 2.3 Persist structured role handoff records so session inspection can explain why control moved between roles
+- [x] 2.1 Introduce a bounded `RoleAgent` abstraction for planner, executor, and reviewer with explicit role input / output structures
+- [x] 2.2 Refactor the current hardcoded planner / executor / reviewer functions to run through the shared role-agent protocol
+- [x] 2.3 Persist structured role handoff records so session inspection can explain why control moved between roles
 
 ## 3. Context Policy Runtime
 

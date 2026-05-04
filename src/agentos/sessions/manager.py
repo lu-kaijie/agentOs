@@ -80,6 +80,9 @@ class SessionManager:
             "loop_status": str(state.get("loop_status", "initialized")),
             "loaded_knowledge": str(state.get("loaded_knowledge", "")),
             "last_result": str(state.get("last_result", "")),
+            "role_records": list(state.get("role_records", [])),
+            "role_handoffs": list(state.get("role_handoffs", [])),
+            "tool_results": list(state.get("tool_results", [])),
         }
         if not carryover["pending_tasks"]:
             carryover.update(
@@ -92,6 +95,9 @@ class SessionManager:
                     "loop_status": "initialized",
                     "loaded_knowledge": "",
                     "last_result": "",
+                    "role_records": [],
+                    "role_handoffs": [],
+                    "tool_results": [],
                 }
             )
         return carryover, user_task
