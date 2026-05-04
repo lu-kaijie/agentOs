@@ -45,12 +45,12 @@
 
 ## 8. Advanced Framework Coverage
 
-- [ ] 8.1 Add a milestone plan for advanced LangChain/LangGraph topics to be covered in the project, tied to concrete runtime goals
-- [ ] 8.2 Extend the runtime with structured output or schema-driven model responses
-- [ ] 8.3 Add conditional routing or multi-step branching in the LangGraph workflow
-- [ ] 8.4 Add state persistence, checkpointing, or memory features appropriate for the project stage
-- [ ] 8.5 Add a human-in-the-loop approval or interruption point in the graph or harness flow
-- [ ] 8.6 Add tracing, evaluation, or runtime observability hooks so framework behavior can be studied during execution
+- [x] 8.1 Add a milestone plan for advanced LangChain/LangGraph topics to be covered in the project, tied to concrete runtime goals
+- [x] 8.2 Extend the runtime with structured output or schema-driven model responses
+- [x] 8.3 Add conditional routing or multi-step branching in the LangGraph workflow
+- [x] 8.4 Add state persistence, checkpointing, or memory features appropriate for the project stage
+- [x] 8.5 Add a human-in-the-loop approval or interruption point in the graph or harness flow
+- [x] 8.6 Add tracing, evaluation, or runtime observability hooks so framework behavior can be studied during execution
 
 ## 9. Async And Isolated Execution
 

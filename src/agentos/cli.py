@@ -27,11 +27,15 @@ def status() -> None:
 
 
 @app.command("run")
-def run(task: str = typer.Argument("describe current status")) -> None:
+def run(
+    task: str = typer.Argument("describe current status"),
+    session_id: str = typer.Option("default", "--session-id", help="Runtime session id."),
+    approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
+) -> None:
     """Run the current LangGraph runtime with a task string."""
 
     application = AgentOsApp.bootstrap()
-    state = application.runtime.run_task(task)
+    state = application.runtime.run_task(task, session_id=session_id, approved=approve)
     typer.echo("agentOs LangGraph runtime executed.")
     typer.echo(json.dumps(state, indent=2, sort_keys=True))
 

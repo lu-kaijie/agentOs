@@ -41,6 +41,7 @@ bash scripts/verify_env.sh
 ```bash
 make status
 make run
+make run-knowledge
 make exec
 make task-list
 make knowledge-list
@@ -168,6 +169,15 @@ make context-demo
 - persistence / memory
 - human-in-the-loop
 - tracing / observability
+
+当前阶段的最小体验命令：
+
+```bash
+make run
+make run-knowledge
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "run: rm temp.txt"
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "run: rm temp.txt" --approve
+```
 
 ### M8: Async And Isolated Execution
 

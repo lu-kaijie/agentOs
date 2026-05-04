@@ -28,10 +28,10 @@ class AgentOsApp:
 
         settings = Settings.load()
         executor = LocalCommandExecutor()
-        runtime = build_runtime(settings, executor=executor)
-        task_manager = TaskManager(settings.tasks_dir)
         knowledge_loader = KnowledgeLoader(settings.knowledge_dir)
         context_manager = ContextManager(settings.context_dir)
+        runtime = build_runtime(settings, executor=executor, knowledge_loader=knowledge_loader)
+        task_manager = TaskManager(settings.tasks_dir)
         return cls(
             settings=settings,
             runtime=runtime,

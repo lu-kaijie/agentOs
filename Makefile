@@ -9,6 +9,9 @@ status:
 run:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli run "run: pwd"
 
+run-knowledge:
+	PYTHONPATH=src $(PYTHON) -m agentos.cli run "knowledge: langgraph-runtime"
+
 exec:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli exec pwd
 
