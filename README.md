@@ -43,6 +43,8 @@ make status
 make run
 make exec
 make task-list
+make knowledge-list
+make context-demo
 make test
 make verify-env
 ```
@@ -139,13 +141,21 @@ PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli task-complete 1
 ### M6: Context And Skill Management
 
 学习目标：
-- 理解长会话 context pressure
-- 学会按需加载知识和技能
+- 理解为什么知识不能一次性塞进一个 prompt
+- 理解为什么长会话必须压缩上下文
 
 预期产出：
-- 知识/技能加载机制
-- 上下文管理策略
-- 对应演示或测试
+- knowledge topic 按需加载
+- context compaction 示例
+- 持久化 context snapshot
+
+当前阶段的最小体验命令：
+
+```bash
+make knowledge-list
+PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli knowledge-load langgraph-runtime
+make context-demo
+```
 
 ### M7: Advanced LangChain / LangGraph
 

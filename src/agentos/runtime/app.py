@@ -41,6 +41,8 @@ class RuntimeBootstrap:
         return {
             "workspace_dir": str(self.settings.workspace_dir),
             "tasks_dir": str(self.settings.tasks_dir),
+            "knowledge_dir": str(self.settings.knowledge_dir),
+            "context_dir": str(self.settings.context_dir),
             "model_provider": self.settings.model_provider,
             "model_name": self.settings.model_name,
             "runtime_status": "langgraph-v1-ready",

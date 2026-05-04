@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import typer
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agentos.app import AgentOsApp
 from agentos.harness.execution import ExecutionRequest
@@ -83,6 +84,61 @@ def task_complete(task_id: int = typer.Argument(..., help="Task id to mark compl
     application = AgentOsApp.bootstrap()
     task = application.task_manager.update_status(task_id, TaskStatus.COMPLETED)
     typer.echo(json.dumps(task.to_dict(), indent=2, sort_keys=True))
+
+
+@app.command("knowledge-list")
+def knowledge_list() -> None:
+    """List available knowledge topics."""
+
+    application = AgentOsApp.bootstrap()
+    payload = {
+        "knowledge_dir": str(application.settings.knowledge_dir),
+        "topics": application.knowledge_loader.list_topics(),
+    }
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("knowledge-load")
+def knowledge_load(topic: str = typer.Argument(..., help="Knowledge topic to load.")) -> None:
+    """Load a single knowledge topic on demand."""
+
+    application = AgentOsApp.bootstrap()
+    message = application.knowledge_loader.load_topic(topic)
+    payload = {
+        "topic": message.additional_kwargs.get("topic", topic),
+        "source": message.additional_kwargs.get("source", ""),
+        "content": message.content,
+    }
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@app.command("context-demo")
+def context_demo(session_id: str = typer.Argument("demo", help="Context session id.")) -> None:
+    """Demonstrate compaction of long session context."""
+
+    application = AgentOsApp.bootstrap()
+    messages = [
+        HumanMessage(content="Inspect the repository layout."),
+        ToolMessage(
+            content=("very long tool output " * 40).strip(),
+            tool_call_id="demo-tool-1",
+        ),
+        AIMessage(content="I found the repository structure."),
+        HumanMessage(content="Keep only the important information."),
+    ]
+    compacted, path = application.context_manager.compact_messages(
+        session_id=session_id,
+        messages=messages,
+        max_chars=180,
+    )
+    payload = {
+        "session_id": session_id,
+        "before_chars": application.context_manager.total_chars(messages),
+        "after_chars": application.context_manager.total_chars(compacted),
+        "message_types": [message.type for message in compacted],
+        "context_path": str(path),
+    }
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
 
 def main() -> None:

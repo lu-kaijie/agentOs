@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentos.config import Settings
+from agentos.context import ContextManager
 from agentos.harness.execution import LocalCommandExecutor
+from agentos.knowledge import KnowledgeLoader
 from agentos.runtime.app import RuntimeBootstrap, build_runtime
 from agentos.tasks import TaskManager
 
@@ -17,6 +19,8 @@ class AgentOsApp:
     settings: Settings
     runtime: RuntimeBootstrap
     task_manager: TaskManager
+    knowledge_loader: KnowledgeLoader
+    context_manager: ContextManager
 
     @classmethod
     def bootstrap(cls) -> "AgentOsApp":
@@ -26,7 +30,15 @@ class AgentOsApp:
         executor = LocalCommandExecutor()
         runtime = build_runtime(settings, executor=executor)
         task_manager = TaskManager(settings.tasks_dir)
-        return cls(settings=settings, runtime=runtime, task_manager=task_manager)
+        knowledge_loader = KnowledgeLoader(settings.knowledge_dir)
+        context_manager = ContextManager(settings.context_dir)
+        return cls(
+            settings=settings,
+            runtime=runtime,
+            task_manager=task_manager,
+            knowledge_loader=knowledge_loader,
+            context_manager=context_manager,
+        )
 
     def status(self) -> dict[str, str]:
         """Return a small status payload for CLI and tests."""

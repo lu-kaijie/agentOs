@@ -16,6 +16,8 @@ def test_status_command_outputs_bootstrap_payload():
     assert payload["runtime_status"] == "langgraph-v1-ready"
     assert payload["model_provider"] == "openai"
     assert payload["tasks_dir"].endswith(".agentos/tasks")
+    assert payload["knowledge_dir"].endswith("/knowledge")
+    assert payload["context_dir"].endswith(".agentos/context")
 
 
 def test_run_command_announces_runtime_shell():

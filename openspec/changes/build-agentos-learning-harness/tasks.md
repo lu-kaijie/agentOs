@@ -38,10 +38,10 @@
 
 ## 7. Context And Skill Management
 
-- [ ] 7.1 Define a mechanism for loading task-specific knowledge or skills on demand
-- [ ] 7.2 Add a context-management strategy for long-running sessions and large tool outputs
-- [ ] 7.3 Keep critical execution state outside transient chat history where continuation requires durability
-- [ ] 7.4 Add tests or demos that show controlled knowledge loading and context reduction behavior
+- [x] 7.1 Define a mechanism for loading task-specific knowledge or skills on demand
+- [x] 7.2 Add a context-management strategy for long-running sessions and large tool outputs
+- [x] 7.3 Keep critical execution state outside transient chat history where continuation requires durability
+- [x] 7.4 Add tests or demos that show controlled knowledge loading and context reduction behavior
 
 ## 8. Advanced Framework Coverage
 

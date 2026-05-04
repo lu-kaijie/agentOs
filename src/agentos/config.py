@@ -16,6 +16,8 @@ class Settings:
     project_root: Path
     workspace_dir: Path
     tasks_dir: Path
+    knowledge_dir: Path
+    context_dir: Path
     model_provider: str
     model_name: str
 
@@ -27,12 +29,16 @@ class Settings:
         project_root = Path(__file__).resolve().parents[2]
         workspace_dir = Path(os.getenv("AGENTOS_WORKSPACE", str(project_root)))
         tasks_dir = Path(os.getenv("AGENTOS_TASKS_DIR", str(project_root / ".agentos" / "tasks")))
+        knowledge_dir = Path(os.getenv("AGENTOS_KNOWLEDGE_DIR", str(project_root / "knowledge")))
+        context_dir = Path(os.getenv("AGENTOS_CONTEXT_DIR", str(project_root / ".agentos" / "context")))
         model_provider = os.getenv("AGENTOS_MODEL_PROVIDER", "openai")
         model_name = os.getenv("AGENTOS_MODEL", "gpt-4.1-mini")
         return cls(
             project_root=project_root,
             workspace_dir=workspace_dir,
             tasks_dir=tasks_dir,
+            knowledge_dir=knowledge_dir,
+            context_dir=context_dir,
             model_provider=model_provider,
             model_name=model_name,
         )
