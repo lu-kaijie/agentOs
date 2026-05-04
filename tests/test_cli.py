@@ -169,6 +169,29 @@ def test_runtime_multi_tool_flow(tmp_path, monkeypatch):
     assert '"stdout": "456\\n"' in result.stdout
 
 
+def test_runtime_role_based_flow(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    (tmp_path / "README.md").write_text("role cli demo\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "code: steps: read: README.md | write: notes.txt => role cli | test: python -c print(321)",
+            "--session-id",
+            "role-demo",
+            "--max-iterations",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert '"role": "planner"' in result.stdout
+    assert '"role": "executor"' in result.stdout
+    assert '"role": "reviewer"' in result.stdout
+    assert '"reviewed_tool_count"' in result.stdout
+
+
 def test_session_show_reflects_replayed_progress_after_resume(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
 

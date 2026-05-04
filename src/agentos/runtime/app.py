@@ -52,6 +52,8 @@ class AgentGraphState(TypedDict):
     - approval_policy: inspectable approval policy output for command execution
     - tool_results: structured tool results accumulated across loop steps
     - context_bundle: structured context prepared for the current decision step
+    - current_role: active workflow role for the current step
+    - role_records: inspectable planner / executor / reviewer records
     - last_result: summarized tool execution result for the current run
     - final_output: the final assistant-facing text
     - loaded_knowledge: knowledge content loaded on demand
@@ -75,6 +77,8 @@ class AgentGraphState(TypedDict):
     approval_policy: dict[str, object]
     tool_results: list[dict[str, object]]
     context_bundle: dict[str, object]
+    current_role: str
+    role_records: list[dict[str, object]]
     last_result: str
     final_output: str
     loaded_knowledge: str
@@ -146,6 +150,8 @@ class RuntimeBootstrap:
             "approved": approved,
             "tool_results": [],
             "context_bundle": {},
+            "current_role": "",
+            "role_records": [],
             "iteration_count": 0,
             "max_iterations": max_iterations,
             "loop_status": "initialized",
@@ -188,6 +194,7 @@ def _build_graph(
 
     def prepare_context(state: AgentGraphState) -> AgentGraphState:
         active_task = state["pending_tasks"][0]
+        current_role = _role_for_task(active_task)
         bundle = context_manager.build_context_bundle(
             session_id=state["session_id"],
             task=active_task,
@@ -197,14 +204,39 @@ def _build_graph(
         return {
             **state,
             "active_task": active_task,
+            "current_role": current_role,
             "context_bundle": bundle,
             "execution_trace": state["execution_trace"]
             + [
                 "prepare_context",
+                f"role={current_role}",
                 f"context_sources={','.join(bundle.get('sources', [])) or 'none'}",
                 f"context_task={active_task}",
             ],
             "loop_status": "context_ready",
+        }
+
+    def planner_role(state: AgentGraphState) -> AgentGraphState:
+        task = _unwrap_role_task(state["active_task"])
+        planned_steps = _executor_steps_for_review(state["pending_tasks"][1:])
+        output = (
+            f"Planner prepared {len(planned_steps)} executor step(s): "
+            + ", ".join(planned_steps[:4])
+        )
+        record = {
+            "role": "planner",
+            "task": task,
+            "summary": output,
+            "planned_steps": planned_steps,
+            "context_sources": state["context_bundle"].get("sources", []),
+            "tool_result_count": len(state["tool_results"]),
+        }
+        return {
+            **state,
+            "final_output": output,
+            "role_records": state["role_records"] + [record],
+            "execution_trace": state["execution_trace"] + ["planner_role"],
+            "loop_status": "step_executed",
         }
 
     def model_decide(state: AgentGraphState) -> AgentGraphState:
@@ -329,6 +361,16 @@ def _build_graph(
             if decision.action == "load_knowledge"
             else state["loaded_knowledge"],
             "tool_results": state["tool_results"] + [tool_result.to_dict()],
+            "role_records": state["role_records"]
+            + [
+                {
+                    "role": state["current_role"] or "executor",
+                    "task": state["active_task"],
+                    "summary": last_result,
+                    "tool_name": tool_result.tool_name,
+                    "context_sources": state["context_bundle"].get("sources", []),
+                }
+            ],
             "execution_trace": state["execution_trace"] + [f"tool_execute:{tool_result.tool_name}"],
             "loop_status": "step_executed",
         }
@@ -338,7 +380,50 @@ def _build_graph(
         return {
             **state,
             "final_output": decision.response,
+            "role_records": state["role_records"]
+            + [
+                {
+                    "role": state["current_role"] or "executor",
+                    "task": state["active_task"],
+                    "summary": decision.response,
+                    "context_sources": state["context_bundle"].get("sources", []),
+                }
+            ],
             "execution_trace": state["execution_trace"] + ["respond_directly"],
+            "loop_status": "step_executed",
+        }
+
+    def reviewer_role(state: AgentGraphState) -> AgentGraphState:
+        task = _unwrap_role_task(state["active_task"])
+        relevant_results = state["tool_results"][-5:]
+        failed_tools = [
+            result["tool_name"]
+            for result in relevant_results
+            if isinstance(result, dict)
+            and isinstance(result.get("payload"), dict)
+            and result["payload"].get("exit_code") not in (None, 0)
+        ]
+        if failed_tools:
+            verdict = f"Reviewer found issues in tool results: {', '.join(failed_tools)}."
+        else:
+            verdict = "Reviewer accepted the executor outputs."
+        output = (
+            f"{verdict} "
+            f"Reviewed {len(relevant_results)} recent tool result(s) for task `{task}`."
+        )
+        record = {
+            "role": "reviewer",
+            "task": task,
+            "summary": output,
+            "reviewed_tool_count": len(relevant_results),
+            "failed_tools": failed_tools,
+            "context_sources": state["context_bundle"].get("sources", []),
+        }
+        return {
+            **state,
+            "final_output": output,
+            "role_records": state["role_records"] + [record],
+            "execution_trace": state["execution_trace"] + ["reviewer_role"],
             "loop_status": "step_executed",
         }
 
@@ -353,6 +438,13 @@ def _build_graph(
         if decision.action == "use_tool":
             return "tool_execute"
         return "respond_directly"
+
+    def route_after_prepare_context(state: AgentGraphState) -> str:
+        if state["current_role"] == "planner":
+            return "planner_role"
+        if state["current_role"] == "reviewer":
+            return "reviewer_role"
+        return "model_decide"
 
     def initialize_loop(state: AgentGraphState) -> AgentGraphState:
         background_results = state["background_results"] or [
@@ -425,18 +517,22 @@ def _build_graph(
     graph_builder = StateGraph(AgentGraphState)
     graph_builder.add_node("initialize_loop", initialize_loop)
     graph_builder.add_node("prepare_context", prepare_context)
+    graph_builder.add_node("planner_role", planner_role)
     graph_builder.add_node("model_decide", model_decide)
     graph_builder.add_node("background_reentry", background_reentry)
     graph_builder.add_node("approval_gate", approval_gate)
+    graph_builder.add_node("reviewer_role", reviewer_role)
     graph_builder.add_node("tool_execute", tool_execute)
     graph_builder.add_node("respond_directly", respond_directly)
     graph_builder.add_node("finalize_iteration", finalize_iteration)
     graph_builder.add_edge(START, "initialize_loop")
     graph_builder.add_conditional_edges("initialize_loop", route_after_initialize)
-    graph_builder.add_edge("prepare_context", "model_decide")
+    graph_builder.add_conditional_edges("prepare_context", route_after_prepare_context)
     graph_builder.add_conditional_edges("model_decide", route_after_model)
     graph_builder.add_edge("approval_gate", END)
     graph_builder.add_edge("background_reentry", "finalize_iteration")
+    graph_builder.add_edge("planner_role", "finalize_iteration")
+    graph_builder.add_edge("reviewer_role", "finalize_iteration")
     graph_builder.add_edge("tool_execute", "finalize_iteration")
     graph_builder.add_edge("respond_directly", "finalize_iteration")
     graph_builder.add_conditional_edges("finalize_iteration", route_after_finalize)
@@ -445,6 +541,15 @@ def _build_graph(
 
 def _expand_user_task(user_task: str) -> list[str]:
     """Expand a user task into explicit loop steps when requested."""
+
+    if user_task.startswith("code:"):
+        raw_task = user_task.split(":", 1)[1].strip()
+        executor_steps = _expand_coding_executor_steps(raw_task)
+        return [
+            _role_task_name("planner", raw_task),
+            *executor_steps,
+            _role_task_name("reviewer", raw_task),
+        ]
 
     if user_task.startswith("steps:"):
         raw_steps = user_task.split(":", 1)[1]
@@ -458,6 +563,39 @@ def _background_task_name(job_id: str) -> str:
     """Build the synthetic task name used for background re-entry."""
 
     return f"background_result:{job_id}"
+
+
+def _role_task_name(role: str, task: str) -> str:
+    return f"role:{role}:{task}"
+
+
+def _role_for_task(task: str) -> str:
+    if task.startswith("role:planner:"):
+        return "planner"
+    if task.startswith("role:reviewer:"):
+        return "reviewer"
+    return "executor"
+
+
+def _unwrap_role_task(task: str) -> str:
+    if task.startswith("role:planner:"):
+        return task.split(":", 2)[2].strip()
+    if task.startswith("role:reviewer:"):
+        return task.split(":", 2)[2].strip()
+    return task
+
+
+def _expand_coding_executor_steps(raw_task: str) -> list[str]:
+    if raw_task.startswith("steps:"):
+        raw_steps = raw_task.split(":", 1)[1]
+        steps = [item.strip() for item in raw_steps.split("|") if item.strip()]
+        if steps:
+            return steps
+    return [raw_task]
+
+
+def _executor_steps_for_review(tasks: list[str]) -> list[str]:
+    return [task for task in tasks if not task.startswith("role:")]
 
 
 def _background_follow_up(result: dict[str, object]) -> str:

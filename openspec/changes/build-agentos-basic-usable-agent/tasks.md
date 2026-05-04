@@ -21,9 +21,9 @@
 
 ## 4. Role-Based Coding Workflow
 
-- [ ] 4.1 Add bounded planner / executor / reviewer role records to the runtime workflow
-- [ ] 4.2 Connect role transitions to tool results, task state, and loop continuation rules
-- [ ] 4.3 Add tests or demos that show a multi-role coding task progressing through planning, execution, and review
+- [x] 4.1 Add bounded planner / executor / reviewer role records to the runtime workflow
+- [x] 4.2 Connect role transitions to tool results, task state, and loop continuation rules
+- [x] 4.3 Add tests or demos that show a multi-role coding task progressing through planning, execution, and review
 
 ## 5. Interactive CLI
 

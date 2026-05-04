@@ -145,3 +145,26 @@ def test_runtime_context_selection_changes_with_task_and_history_size(tmp_path: 
     assert "history" in bundle["sources"]
     assert "tool_results" in bundle["sources"]
     assert "..." in bundle["history_summary"] or "..." in bundle["tool_summary"] or "..." in bundle["trace_summary"]
+
+
+def test_runtime_runs_bounded_role_based_coding_workflow(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    (tmp_path / "README.md").write_text("role based workflow\n", encoding="utf-8")
+
+    app = AgentOsApp.bootstrap()
+    state = app.runtime.run_task(
+        "code: steps: read: README.md | write: notes.txt => role workflow | test: python -c print(789)",
+        max_iterations=5,
+    )
+
+    roles = [record["role"] for record in state["role_records"]]
+
+    assert roles[0] == "planner"
+    assert "executor" in roles
+    assert roles[-1] == "reviewer"
+    assert "planner_role" in state["execution_trace"]
+    assert "reviewer_role" in state["execution_trace"]
+    assert state["completed_tasks"][0].startswith("role:planner:")
+    assert state["completed_tasks"][-1].startswith("role:reviewer:")
+    assert state["role_records"][-1]["reviewed_tool_count"] >= 1
+    assert "Reviewer accepted" in state["final_output"]
