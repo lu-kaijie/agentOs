@@ -9,7 +9,6 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from openai import APIError
 from pydantic import BaseModel, Field
 
 from agentos.config import Settings
@@ -45,7 +44,7 @@ class ModelBackedAgentRuntime:
         )
 
     def build_chat_model(self) -> ChatOpenAI:
-        return self.build_chat_model_for(self.settings.model_name)
+        return self.build_chat_model_for(self.settings.model_medium_name)
 
     def build_chat_model_for(self, model_name: str) -> ChatOpenAI:
         kwargs = {
@@ -57,24 +56,21 @@ class ModelBackedAgentRuntime:
             kwargs["base_url"] = self.settings.openai_base_url
         return ChatOpenAI(**kwargs)
 
-    def candidate_models(self) -> list[str]:
-        candidates = [
-            self.settings.model_name,
-            "gpt-5.2",
-            "gpt-5.4",
-            "gpt-5.5",
-            "gpt-5.3-codex",
-            "gpt-4o-mini",
-            "gpt-4.1",
-            "gpt-4o",
-        ]
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for name in candidates:
-            if name and name not in seen:
-                seen.add(name)
-                ordered.append(name)
-        return ordered
+    def model_name_for_level(self, level: str) -> str:
+        normalized = level.strip().lower()
+        if normalized == "small":
+            return self.settings.model_small_name
+        if normalized == "large":
+            return self.settings.model_large_name
+        return self.settings.model_medium_name
+
+    def model_name_for_role(self, role: str) -> str:
+        normalized = role.strip().lower()
+        if normalized == "planner":
+            return self.model_name_for_level(self.settings.planner_model_level)
+        if normalized == "reviewer":
+            return self.model_name_for_level(self.settings.reviewer_model_level)
+        return self.model_name_for_level(self.settings.executor_model_level)
 
     def run_turn(
         self,
@@ -101,112 +97,106 @@ class ModelBackedAgentRuntime:
         planner_agent = PlannerRoleAgent()
         planner_fallback = planner_agent.run(planner_input)
         planner_parser = PydanticOutputParser(pydantic_object=PlannerPlan)
-        last_error: Exception | None = None
-
-        for model_name in self.candidate_models():
-            try:
-                model = self.build_chat_model_for(model_name)
-                planner_prompt = [
-                    SystemMessage(
-                        content=(
-                            "You are the planner for agentOs. Produce a short scoped plan for one bounded coding turn. "
-                            "Prefer repository search, file read/write/patch, and test execution tools when needed. "
-                            "Return JSON only."
-                        )
-                    ),
-                    HumanMessage(
-                        content=(
-                            f"User task:\n{user_task}\n\n"
-                            f"Context bundle:\n{context_bundles['planner'].get('bundle_preview', '')}\n\n"
-                            f"{planner_parser.get_format_instructions()}"
-                        )
-                    ),
-                ]
-                planner_raw = model.invoke(planner_prompt)
-                planner_plan = self._parse_structured_response(planner_parser, planner_raw)
-
-                executor_agent = create_react_agent(
-                    model,
-                    self.tool_registry.as_langchain_tools(),
-                    state_modifier=(
-                        "You are the executor for agentOs. Work inside the repository. "
-                        "Use tools when helpful. Prefer bounded file operations and test execution. "
-                        "Do not claim work you did not verify."
-                    ),
+        planner_model_name = self.model_name_for_role("planner")
+        planner_model = self.build_chat_model_for(planner_model_name)
+        planner_prompt = [
+            SystemMessage(
+                content=(
+                    "You are the planner for agentOs. Produce a short scoped plan for one bounded coding turn. "
+                    "Prefer repository search, file read/write/patch, and test execution tools when needed. "
+                    "Return JSON only."
                 )
-                observed_tool_results: list[dict[str, object]] = []
-                executor_messages = [
-                    *prior_messages,
-                    HumanMessage(
-                        content=(
-                            f"User task:\n{user_task}\n\n"
-                            f"Planner summary:\n{planner_plan.summary}\n\n"
-                            f"Planner steps:\n- "
-                            + "\n- ".join(planner_plan.steps or [planner_fallback.summary])
-                            + "\n\n"
-                            + f"Context bundle:\n{context_bundles['executor'].get('bundle_preview', '')}"
-                        )
-                    ),
-                ]
-                with tool_runtime_context(approved=approved, collector=observed_tool_results):
-                    executor_state = executor_agent.invoke({"messages": executor_messages})
-                executor_output = self._last_ai_content(executor_state.get("messages", []))
-
-                reviewer_input = RoleInput(
-                    session_id=session_id,
-                    role="reviewer",
-                    task=user_task,
-                    user_task=user_task,
-                    context_bundle=context_bundles["reviewer"],
-                    tool_results=observed_tool_results,
-                    task_state={},
+            ),
+            HumanMessage(
+                content=(
+                    f"User task:\n{user_task}\n\n"
+                    f"Context bundle:\n{context_bundles['planner'].get('bundle_preview', '')}\n\n"
+                    f"{planner_parser.get_format_instructions()}"
                 )
-                reviewer_agent = ReviewerRoleAgent()
-                reviewer_fallback = reviewer_agent.run(reviewer_input)
-                reviewer_parser = PydanticOutputParser(pydantic_object=ReviewerVerdict)
-                reviewer_prompt = [
-                    SystemMessage(
-                        content=(
-                            "You are the reviewer for agentOs. Judge whether the executor result appears grounded "
-                            "in tool output and summarize the current state for the user. Return JSON only."
-                        )
-                    ),
-                    HumanMessage(
-                        content=(
-                            f"User task:\n{user_task}\n\n"
-                            f"Executor final answer:\n{executor_output}\n\n"
-                            f"Observed tool results:\n{observed_tool_results}\n\n"
-                            f"Context bundle:\n{context_bundles['reviewer'].get('bundle_preview', '')}\n\n"
-                            f"{reviewer_parser.get_format_instructions()}"
-                        )
-                    ),
-                ]
-                reviewer_raw = model.invoke(reviewer_prompt)
-                reviewer_verdict = self._parse_structured_response(reviewer_parser, reviewer_raw)
+            ),
+        ]
+        planner_raw = planner_model.invoke(planner_prompt)
+        planner_plan = self._parse_structured_response(planner_parser, planner_raw)
 
-                persisted_messages = self._normalize_messages(executor_state.get("messages", []))
-                self.context_manager.save_session(session_id, persisted_messages)
+        executor_model_name = self.model_name_for_role("executor")
+        executor_model = self.build_chat_model_for(executor_model_name)
+        executor_agent = create_react_agent(
+            executor_model,
+            self.tool_registry.as_langchain_tools(),
+            state_modifier=(
+                "You are the executor for agentOs. Work inside the repository. "
+                "Use tools when helpful. Prefer bounded file operations and test execution. "
+                "Do not claim work you did not verify."
+            ),
+        )
+        observed_tool_results: list[dict[str, object]] = []
+        executor_messages = [
+            *prior_messages,
+            HumanMessage(
+                content=(
+                    f"User task:\n{user_task}\n\n"
+                    f"Planner summary:\n{planner_plan.summary}\n\n"
+                    f"Planner steps:\n- "
+                    + "\n- ".join(planner_plan.steps or [planner_fallback.summary])
+                    + "\n\n"
+                    + f"Context bundle:\n{context_bundles['executor'].get('bundle_preview', '')}"
+                )
+            ),
+        ]
+        with tool_runtime_context(approved=approved, collector=observed_tool_results):
+            executor_state = executor_agent.invoke({"messages": executor_messages})
+        executor_output = self._last_ai_content(executor_state.get("messages", []))
 
-                return {
-                    "model_name": model_name,
-                    "planner_summary": planner_plan.summary or planner_fallback.summary,
-                    "planner_steps": planner_plan.steps or [],
-                    "executor_output": executor_output,
-                    "reviewer_summary": reviewer_verdict.summary or reviewer_fallback.summary,
-                    "reviewer_follow_up_needed": reviewer_verdict.follow_up_needed,
-                    "tool_results": observed_tool_results,
-                    "message_count": len(persisted_messages),
-                }
-            except APIError as exc:
-                last_error = exc
-                continue
+        reviewer_input = RoleInput(
+            session_id=session_id,
+            role="reviewer",
+            task=user_task,
+            user_task=user_task,
+            context_bundle=context_bundles["reviewer"],
+            tool_results=observed_tool_results,
+            task_state={},
+        )
+        reviewer_agent = ReviewerRoleAgent()
+        reviewer_fallback = reviewer_agent.run(reviewer_input)
+        reviewer_parser = PydanticOutputParser(pydantic_object=ReviewerVerdict)
+        reviewer_model_name = self.model_name_for_role("reviewer")
+        reviewer_model = self.build_chat_model_for(reviewer_model_name)
+        reviewer_prompt = [
+            SystemMessage(
+                content=(
+                    "You are the reviewer for agentOs. Judge whether the executor result appears grounded "
+                    "in tool output and summarize the current state for the user. Return JSON only."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"User task:\n{user_task}\n\n"
+                    f"Executor final answer:\n{executor_output}\n\n"
+                    f"Observed tool results:\n{observed_tool_results}\n\n"
+                    f"Context bundle:\n{context_bundles['reviewer'].get('bundle_preview', '')}\n\n"
+                    f"{reviewer_parser.get_format_instructions()}"
+                )
+            ),
+        ]
+        reviewer_raw = reviewer_model.invoke(reviewer_prompt)
+        reviewer_verdict = self._parse_structured_response(reviewer_parser, reviewer_raw)
 
-        if last_error is not None:
-            raise RuntimeError(
-                "Model-backed runtime could not find an available model channel. "
-                f"Tried: {', '.join(self.candidate_models())}. Last error: {last_error}"
-            ) from last_error
-        raise RuntimeError("Model-backed runtime failed before reaching a model call")
+        persisted_messages = self._normalize_messages(executor_state.get("messages", []))
+        self.context_manager.save_session(session_id, persisted_messages)
+
+        return {
+            "model_name": executor_model_name,
+            "planner_model_name": planner_model_name,
+            "executor_model_name": executor_model_name,
+            "reviewer_model_name": reviewer_model_name,
+            "planner_summary": planner_plan.summary or planner_fallback.summary,
+            "planner_steps": planner_plan.steps or [],
+            "executor_output": executor_output,
+            "reviewer_summary": reviewer_verdict.summary or reviewer_fallback.summary,
+            "reviewer_follow_up_needed": reviewer_verdict.follow_up_needed,
+            "tool_results": observed_tool_results,
+            "message_count": len(persisted_messages),
+        }
 
     def _load_prior_messages(self, session_id: str) -> list[BaseMessage]:
         try:

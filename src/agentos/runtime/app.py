@@ -123,7 +123,7 @@ class RuntimeBootstrap:
             "workspaces_dir": str(self.settings.workspaces_dir),
             "coordination_dir": str(self.settings.coordination_dir),
             "model_provider": self.settings.model_provider,
-            "model_name": self.settings.model_name,
+            "default_model_level": "medium",
             "runtime_status": "langgraph-advanced-ready",
             "executor": self.executor.__class__.__name__,
         }

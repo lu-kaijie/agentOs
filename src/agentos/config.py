@@ -23,7 +23,12 @@ class Settings:
     workspaces_dir: Path
     coordination_dir: Path
     model_provider: str
-    model_name: str
+    model_small_name: str
+    model_medium_name: str
+    model_large_name: str
+    planner_model_level: str
+    executor_model_level: str
+    reviewer_model_level: str
     openai_api_key: str
     openai_base_url: str
     model_enabled: bool
@@ -49,7 +54,12 @@ class Settings:
             os.getenv("AGENTOS_COORDINATION_DIR", str(project_root / ".agentos" / "coordination"))
         )
         model_provider = os.getenv("AGENTOS_MODEL_PROVIDER", "openai")
-        model_name = os.getenv("AGENTOS_MODEL", "gpt-4.1-mini")
+        model_small_name = os.getenv("AGENTOS_MODEL_SMALL", "gpt-5.4")
+        model_medium_name = os.getenv("AGENTOS_MODEL_MEDIUM", "gpt-5.4")
+        model_large_name = os.getenv("AGENTOS_MODEL_LARGE", "gpt-5.4")
+        planner_model_level = os.getenv("AGENTOS_PLANNER_MODEL_LEVEL", "medium")
+        executor_model_level = os.getenv("AGENTOS_EXECUTOR_MODEL_LEVEL", "medium")
+        reviewer_model_level = os.getenv("AGENTOS_REVIEWER_MODEL_LEVEL", "medium")
         openai_api_key = os.getenv("OPENAI_API_KEY", "")
         openai_base_url = os.getenv("OPENAI_BASE_URL", "")
         model_enabled = os.getenv("AGENTOS_MODEL_ENABLED", "1").lower() not in {"0", "false", "no"}
@@ -64,7 +74,12 @@ class Settings:
             workspaces_dir=workspaces_dir,
             coordination_dir=coordination_dir,
             model_provider=model_provider,
-            model_name=model_name,
+            model_small_name=model_small_name,
+            model_medium_name=model_medium_name,
+            model_large_name=model_large_name,
+            planner_model_level=planner_model_level,
+            executor_model_level=executor_model_level,
+            reviewer_model_level=reviewer_model_level,
             openai_api_key=openai_api_key,
             openai_base_url=openai_base_url,
             model_enabled=model_enabled,

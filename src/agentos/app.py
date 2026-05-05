@@ -89,6 +89,12 @@ class AgentOsApp:
 
         payload = self.runtime.summary()
         payload["model_configured"] = "true" if self.model_runtime.is_configured() else "false"
+        payload["model_small_name"] = self.settings.model_small_name
+        payload["model_medium_name"] = self.settings.model_medium_name
+        payload["model_large_name"] = self.settings.model_large_name
+        payload["planner_model_level"] = self.settings.planner_model_level
+        payload["executor_model_level"] = self.settings.executor_model_level
+        payload["reviewer_model_level"] = self.settings.reviewer_model_level
         return payload
 
     def run_session_task(
@@ -166,7 +172,7 @@ class AgentOsApp:
             tool_results=list(prior_state.get("tool_results", [])),
             approved=approve,
         )
-        used_model_name = str(result.get("model_name", self.settings.model_name))
+        used_model_name = str(result.get("model_name", self.settings.model_medium_name))
 
         role_records = [
             {
@@ -259,10 +265,13 @@ class AgentOsApp:
             "execution_trace": [
                 "prepare_context",
                 f"model_selected={used_model_name}",
+                f"planner_model={result.get('planner_model_name', used_model_name)}",
                 "planner_model",
                 f"planner_steps={len(result['planner_steps'])}",
+                f"executor_model={result.get('executor_model_name', used_model_name)}",
                 "executor_model",
                 f"executor_tools={len(result['tool_results'])}",
+                f"reviewer_model={result.get('reviewer_model_name', used_model_name)}",
                 "reviewer_model",
                 "model_backed_completed",
             ],

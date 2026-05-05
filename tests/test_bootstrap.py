@@ -14,7 +14,12 @@ def test_settings_load_defaults():
     assert settings.workspaces_dir.name == "workspaces"
     assert settings.coordination_dir.name == "coordination"
     assert settings.model_provider == "openai"
-    assert settings.model_name == "gpt-4.1-mini"
+    assert settings.model_small_name == "gpt-5.4"
+    assert settings.model_medium_name == "gpt-5.4"
+    assert settings.model_large_name == "gpt-5.4"
+    assert settings.planner_model_level == "medium"
+    assert settings.executor_model_level == "medium"
+    assert settings.reviewer_model_level == "medium"
 
 
 def test_app_bootstrap_exposes_runtime_status():
