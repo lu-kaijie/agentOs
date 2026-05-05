@@ -58,6 +58,8 @@ class AgentGraphState(TypedDict):
     - approval_policy: inspectable approval policy output for command execution
     - tool_results: structured tool results accumulated across loop steps
     - context_bundle: structured context prepared for the current decision step
+    - memory_state: structured layered memory restored and maintained for the session
+    - context_audit_records: inspectable lifecycle maintenance and budget audit records
     - current_role: active workflow role for the current step
     - role_records: inspectable planner / executor / reviewer records
     - last_result: summarized tool execution result for the current run
@@ -83,7 +85,9 @@ class AgentGraphState(TypedDict):
     approval_policy: dict[str, object]
     tool_results: list[dict[str, object]]
     context_bundle: dict[str, object]
+    memory_state: dict[str, object]
     context_policy_records: list[dict[str, object]]
+    context_audit_records: list[dict[str, object]]
     current_role: str
     role_records: list[dict[str, object]]
     role_handoffs: list[dict[str, object]]
@@ -158,7 +162,9 @@ class RuntimeBootstrap:
             "approved": approved,
             "tool_results": [],
             "context_bundle": {},
+            "memory_state": {},
             "context_policy_records": [],
+            "context_audit_records": [],
             "current_role": "",
             "role_records": [],
             "role_handoffs": [],
@@ -207,7 +213,9 @@ class RuntimeBootstrap:
             "approved": approved,
             "tool_results": [],
             "context_bundle": {},
+            "memory_state": {},
             "context_policy_records": [],
+            "context_audit_records": [],
             "current_role": "",
             "role_records": [],
             "role_handoffs": [],
@@ -275,32 +283,29 @@ def _build_graph(
     def prepare_context(state: AgentGraphState) -> AgentGraphState:
         active_task = state["pending_tasks"][0]
         current_role = _role_for_task(active_task)
-        bundle = context_manager.build_context_bundle(
+        bundle, policy_record, memory, audit = context_manager.prepare_role_context(
             session_id=state["session_id"],
             task=active_task,
+            role=current_role,
             state=state,
             workspace_dir=settings.workspace_dir,
-            role=current_role,
-        )
-        _, policy_record = context_manager.policy_runtime.build_bundle(
-            session_id=state["session_id"],
-            role=current_role,
-            task=active_task,
-            state=state,
-            workspace_dir=settings.workspace_dir,
+            trigger_reason="prepare_context" if state.get("iteration_count", 0) == 0 else "role_handoff",
         )
         return {
             **state,
             "active_task": active_task,
             "current_role": current_role,
             "context_bundle": bundle,
+            "memory_state": memory.to_dict(),
             "context_policy_records": state["context_policy_records"] + [policy_record.to_dict()],
+            "context_audit_records": state["context_audit_records"] + [audit.to_dict()],
             "execution_trace": state["execution_trace"]
             + [
                 "prepare_context",
                 f"role={current_role}",
                 f"context_sources={','.join(bundle.get('sources', [])) or 'none'}",
                 f"context_role_view={bundle.get('role_view', {}).get('focus', 'none')}",
+                f"context_memory={bundle.get('memory_summary', '')}",
                 f"context_task={active_task}",
             ],
             "loop_status": "context_ready",

@@ -174,28 +174,43 @@ class AgentOsApp:
                 "step_outputs": [],
                 "tool_results": [],
                 "execution_trace": [],
+                "context_audit_records": [],
+                "memory_state": {},
             }
 
-        planner_bundle, planner_record = self.context_manager.policy_runtime.build_bundle(
+        planner_bundle, planner_record, memory, planner_audit = self.context_manager.prepare_role_context(
             session_id=session_id,
             role="planner",
             task=task,
             state=prior_state,
             workspace_dir=self.settings.workspace_dir,
+            trigger_reason="session_resume" if prior_state.get("completed_tasks") else "prepare_context",
         )
-        executor_bundle, executor_record = self.context_manager.policy_runtime.build_bundle(
+        prepared_state = {
+            **prior_state,
+            "memory_state": memory.to_dict(),
+            "context_audit_records": [planner_audit.to_dict()],
+        }
+        executor_bundle, executor_record, memory, executor_audit = self.context_manager.prepare_role_context(
             session_id=session_id,
             role="executor",
             task=task,
-            state=prior_state,
+            state=prepared_state,
             workspace_dir=self.settings.workspace_dir,
+            trigger_reason="role_handoff",
         )
-        reviewer_bundle, reviewer_record = self.context_manager.policy_runtime.build_bundle(
+        prepared_state = {
+            **prepared_state,
+            "memory_state": memory.to_dict(),
+            "context_audit_records": [planner_audit.to_dict(), executor_audit.to_dict()],
+        }
+        reviewer_bundle, reviewer_record, memory, reviewer_audit = self.context_manager.prepare_role_context(
             session_id=session_id,
             role="reviewer",
             task=task,
-            state=prior_state,
+            state=prepared_state,
             workspace_dir=self.settings.workspace_dir,
+            trigger_reason="role_handoff",
         )
 
         result = self.model_runtime.run_turn(
@@ -288,10 +303,16 @@ class AgentOsApp:
             "approval_policy": {},
             "tool_results": result["tool_results"],
             "context_bundle": reviewer_bundle,
+            "memory_state": memory.to_dict(),
             "context_policy_records": [
                 planner_record.to_dict(),
                 executor_record.to_dict(),
                 reviewer_record.to_dict(),
+            ],
+            "context_audit_records": [
+                planner_audit.to_dict(),
+                executor_audit.to_dict(),
+                reviewer_audit.to_dict(),
             ],
             "current_role": "reviewer",
             "role_records": role_records,
@@ -379,6 +400,12 @@ class AgentOsApp:
             max_iterations=max_iterations,
             state_override=state_override,
         )
+        try:
+            memory = self.context_manager.load_memory(session_id)
+            state["memory_state"] = memory.to_dict()
+            state["context_audit_records"] = [item.to_dict() for item in memory.lifecycle_audits[-5:]]
+        except FileNotFoundError:
+            pass
         state["resume_poll_iterations"] = poll_iterations
         state["resume_from_loop_status"] = last_session.latest_loop_status
         return state

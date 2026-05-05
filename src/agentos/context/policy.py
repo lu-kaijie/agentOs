@@ -34,6 +34,12 @@ class ContextPolicyRuntime:
             tool_results=RunnableLambda(self._tool_results),
             execution_trace=RunnableLambda(self._execution_trace),
             workspace_signals=RunnableLambda(self._workspace_signals),
+            memory_state=RunnableLambda(self._memory_state),
+            context_audit_records=RunnableLambda(
+                lambda data: [
+                    item for item in data["state"].get("context_audit_records", []) if isinstance(item, dict)
+                ]
+            ),
             role_name=RunnableLambda(lambda data: str(data.get("role", "executor"))),
             session_id=RunnableLambda(lambda data: str(data.get("session_id", ""))),
             task=RunnableLambda(lambda data: str(data.get("task", ""))),
@@ -63,9 +69,9 @@ class ContextPolicyRuntime:
             session_id=session_id,
             role=role,
             task=task,
-            selectors=["task_hints", "history_entries", "tool_results"],
-            reducers=["history_summary", "tool_summary", "trace_summary"],
-            retrievers=["workspace_signals", "role_view"],
+            selectors=["task_hints", "history_entries", "tool_results", "memory_state"],
+            reducers=["history_summary", "tool_summary", "trace_summary", "memory_summary"],
+            retrievers=["workspace_signals", "role_view", "budget_allocations"],
             sources=[str(item) for item in payload.get("sources", [])],
         )
         return payload, record
@@ -144,6 +150,12 @@ class ContextPolicyRuntime:
         signals.append({"kind": "workspace", "top_level_entries": top_level})
         return signals
 
+    def _memory_state(self, data: dict[str, object]) -> dict[str, object]:
+        memory = data["state"].get("memory_state", {})
+        if isinstance(memory, dict):
+            return memory
+        return {}
+
     def _assemble_bundle(self, data: dict[str, object]) -> dict[str, object]:
         history_entries = [
             item for item in data.get("history_entries", []) if isinstance(item, dict)
@@ -155,9 +167,27 @@ class ContextPolicyRuntime:
         workspace_signals = [
             item for item in data.get("workspace_signals", []) if isinstance(item, dict)
         ]
+        memory_state = dict(data.get("memory_state", {}))
         task_hints = dict(data.get("task_hints", {}))
         max_chars = int(data.get("max_chars", 600))
         role_name = str(data.get("role_name", "executor"))
+        recent_messages = [
+            item for item in memory_state.get("recent_messages", []) if isinstance(item, dict)
+        ]
+        working_memory = dict(memory_state.get("working_memory", {}))
+        user_preferences = dict(memory_state.get("user_preferences", {}))
+        tool_facts = [
+            item for item in memory_state.get("tool_facts", []) if isinstance(item, dict)
+        ]
+        workspace_memory = dict(memory_state.get("workspace_state", {}))
+        failure_memory = [
+            item for item in memory_state.get("failure_memory", []) if isinstance(item, dict)
+        ]
+        session_summary = str(memory_state.get("session_summary", ""))
+        budget_allocations = self._budget_allocations(role_name)
+        context_audits = [
+            item for item in data.get("context_audit_records", []) if isinstance(item, dict)
+        ]
 
         bundle = {
             "session_id": str(data.get("session_id", "")),
@@ -174,9 +204,29 @@ class ContextPolicyRuntime:
                 max_chars=max_chars // 3,
             ),
             "recent_tool_results": tool_results[-3:],
+            "tool_facts": tool_facts[-3:],
             "trace_summary": self._compress_lines(execution_trace, max_chars=max_chars // 4),
             "workspace_signals": workspace_signals,
-            "sources": self._bundle_sources(history_entries, tool_results, workspace_signals),
+            "sources": self._bundle_sources(history_entries, tool_results, workspace_signals, memory_state),
+            "memory_summary": self._memory_summary(
+                working_memory=working_memory,
+                user_preferences=user_preferences,
+                tool_facts=tool_facts,
+                failure_memory=failure_memory,
+                session_summary=session_summary,
+                max_chars=max_chars // 2,
+            ),
+            "layered_memory": {
+                "recent_messages": recent_messages[-4:],
+                "working_memory": working_memory,
+                "user_preferences": user_preferences,
+                "tool_facts": tool_facts[-3:],
+                "workspace_state": workspace_memory,
+                "failure_memory": failure_memory[-3:],
+                "session_summary": session_summary,
+            },
+            "budget_allocations": budget_allocations,
+            "context_audit_records": context_audits[-3:],
         }
         bundle["role_view"] = self._role_view(role_name, bundle)
         bundle["bundle_preview"] = self.render_bundle(bundle, max_chars=max_chars)
@@ -188,6 +238,7 @@ class ContextPolicyRuntime:
             f"task={bundle.get('task', '')}",
             f"hints={bundle.get('task_hints', {})}",
             f"history={bundle.get('history_summary', '')}",
+            f"memory={bundle.get('memory_summary', '')}",
             f"tools={bundle.get('tool_summary', '')}",
             f"trace={bundle.get('trace_summary', '')}",
             f"role_view={bundle.get('role_view', {})}",
@@ -203,19 +254,27 @@ class ContextPolicyRuntime:
             return {
                 "focus": "task-scoping",
                 "history": bundle.get("recent_history", [])[-2:],
+                "working_memory": bundle.get("layered_memory", {}).get("working_memory", {}),
                 "workspace": bundle.get("workspace_signals", [])[:1],
+                "budget": bundle.get("budget_allocations", {}),
             }
         if role_name == "reviewer":
             return {
                 "focus": "verification",
                 "tool_results": bundle.get("recent_tool_results", [])[-3:],
+                "tool_facts": bundle.get("tool_facts", [])[-3:],
+                "failure_memory": bundle.get("layered_memory", {}).get("failure_memory", [])[-3:],
                 "history": bundle.get("recent_history", [])[-1:],
+                "budget": bundle.get("budget_allocations", {}),
             }
         return {
             "focus": "execution",
             "history": bundle.get("recent_history", [])[-2:],
             "tool_results": bundle.get("recent_tool_results", [])[-2:],
+            "working_memory": bundle.get("layered_memory", {}).get("working_memory", {}),
             "workspace": bundle.get("workspace_signals", [])[:2],
+            "workspace_state": bundle.get("layered_memory", {}).get("workspace_state", {}),
+            "budget": bundle.get("budget_allocations", {}),
         }
 
     def _compress_lines(self, lines: list[str], *, max_chars: int) -> str:
@@ -244,6 +303,7 @@ class ContextPolicyRuntime:
         history_entries: list[dict[str, str]],
         tool_results: list[dict[str, object]],
         workspace_signals: list[dict[str, object]],
+        memory_state: dict[str, object],
     ) -> list[str]:
         sources: list[str] = []
         if history_entries:
@@ -252,7 +312,40 @@ class ContextPolicyRuntime:
             sources.append("tool_results")
         if workspace_signals:
             sources.append("workspace")
+        if memory_state:
+            sources.append("layered_memory")
         return sources
+
+    def _memory_summary(
+        self,
+        *,
+        working_memory: dict[str, object],
+        user_preferences: dict[str, object],
+        tool_facts: list[dict[str, object]],
+        failure_memory: list[dict[str, object]],
+        session_summary: str,
+        max_chars: int,
+    ) -> str:
+        lines = [session_summary]
+        if working_memory.get("current_goal"):
+            lines.append(f"goal={working_memory.get('current_goal')}")
+        constraints = [str(item) for item in working_memory.get("accepted_constraints", [])]
+        if constraints:
+            lines.append("constraints=" + ", ".join(constraints[:3]))
+        if user_preferences.get("preferred_language"):
+            lines.append(f"language={user_preferences.get('preferred_language')}")
+        if tool_facts:
+            lines.append(f"tool_facts={len(tool_facts)}")
+        if failure_memory:
+            lines.append(f"failures={len(failure_memory)}")
+        return self._compress_lines(lines, max_chars=max_chars)
+
+    def _budget_allocations(self, role_name: str) -> dict[str, int]:
+        if role_name == "planner":
+            return {"working_memory": 260, "user_preferences": 80, "recent_messages": 120, "workspace_state": 100}
+        if role_name == "reviewer":
+            return {"working_memory": 180, "tool_facts": 220, "failure_memory": 120, "recent_messages": 80}
+        return {"working_memory": 180, "tool_facts": 180, "workspace_state": 160, "recent_messages": 80}
 
     def _workspace_preview(self, signals: object) -> str:
         if not isinstance(signals, list):

@@ -59,6 +59,7 @@ def test_run_command_persists_session_and_lists_it(tmp_path, monkeypatch):
 
 def test_session_show_returns_latest_turn(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTOS_SESSIONS_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setenv("AGENTOS_CONTEXT_DIR", str(tmp_path / "context"))
 
     runner.invoke(app, ["run", "run: pwd", "--session-id", "demo-session"])
     result = runner.invoke(app, ["session-show", "demo-session"])
@@ -67,6 +68,7 @@ def test_session_show_returns_latest_turn(tmp_path, monkeypatch):
     payload = json.loads(result.stdout)
     assert payload["session"]["id"] == "demo-session"
     assert payload["latest_turn"]["user_task"] == "run: pwd"
+    assert "memory_state" in payload
 
 
 def test_resume_reuses_persisted_session_state(tmp_path, monkeypatch):

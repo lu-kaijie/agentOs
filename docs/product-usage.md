@@ -25,6 +25,7 @@ cp .env.example .env
 ```env
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=...
+AGENTOS_CONTEXT_MODEL_COMPRESSION=0
 ```
 
 模型采用三挡配置：
@@ -44,6 +45,7 @@ AGENTOS_REVIEWER_MODEL_LEVEL=medium
 - 先定义三挡模型池
 - 再让 planner / executor / reviewer 选择使用哪一挡
 - 默认三个 role 都走 `medium`
+- `AGENTOS_CONTEXT_MODEL_COMPRESSION=1` 时，长语义记忆允许使用模型做额外压缩；默认 `0`，即只用启发式回退，避免开发和测试时意外触发外部请求
 
 ## 3. 主要命令
 
@@ -96,7 +98,56 @@ agentos
 
 如果检测到终端支持并且安装了 `textual`，默认会进入更稳定的 TUI 风格界面；否则会自动退回 plain shell。
 
-## 5. 非模型路径
+## 5. 长会话与上下文整理
+
+当前版本已经加入了主动上下文维护机制。会话在以下场景会自动整理上下文：
+
+- 会话内容增长到活跃阈值附近
+- 工具输出过长
+- role 切换
+- session resume
+- 一轮任务结束后的后续组装
+
+整理策略不是单一摘要，而是混合式：
+
+- 结构化硬事实由程序抽取
+  - 例如最近工具结果、失败记录、已读已改文件、工作区状态
+- 语义性信息进入工作记忆
+  - 例如当前目标、用户约束、最近决策、阶段总结
+- 最终进入 prompt 的内容仍由 runtime 按 budget 显式控制
+
+你可以这样验证：
+
+```bash
+agentos shell --plain --session-id context-demo
+```
+
+然后连续输入多轮任务，例如：
+
+```text
+请先阅读 README.md，总结项目状态，并记住后续都用中文回复
+搜索 tests 里所有和 context 相关的测试
+运行一个不会通过的测试命令，并告诉我失败原因
+现在总结一下刚才已经做过什么、哪些文件看过、哪些尝试失败过
+```
+
+之后执行：
+
+```bash
+agentos session-show context-demo
+```
+
+重点看这些字段：
+
+- `memory_state`
+- `memory_state.working_memory`
+- `memory_state.tool_facts`
+- `memory_state.failure_memory`
+- `memory_state.lifecycle_audits`
+
+如果这些字段随着长会话推进而持续更新，说明上下文整理链路已经在工作。
+
+## 6. 非模型路径
 
 如果未配置 `OPENAI_API_KEY`，启动时会给出明确引导，并退回到 deterministic / legacy 路径。这条路径仍然可以运行已有的显式 task DSL，例如：
 
@@ -104,7 +155,7 @@ agentos
 agentos run "code: steps: read: README.md | write: notes.txt => demo | test: python -c print(321)"
 ```
 
-## 6. 调试和开发
+## 7. 调试和开发
 
 如果你要调试源码仓库本身，而不是只把它当产品来用，继续使用 `make` 命令即可，例如：
 

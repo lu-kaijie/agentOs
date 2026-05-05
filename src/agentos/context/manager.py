@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Iterable
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from agentos.context.lifecycle import ContextLifecycleManager
+from agentos.context.models import LayeredMemory
 from agentos.context.policy import ContextPolicyRuntime
 
 
@@ -17,6 +19,7 @@ class ContextManager:
         self.context_dir = Path(context_dir)
         self.context_dir.mkdir(parents=True, exist_ok=True)
         self.policy_runtime = ContextPolicyRuntime()
+        self.lifecycle_manager = ContextLifecycleManager(self)
 
     def save_session(self, session_id: str, messages: list[BaseMessage]) -> Path:
         path = self._session_path(session_id)
@@ -30,6 +33,20 @@ class ContextManager:
             raise FileNotFoundError(f"Session '{session_id}' does not exist")
         payload = json.loads(path.read_text(encoding="utf-8"))
         return [self._deserialize_message(item) for item in payload]
+
+    def save_memory(self, session_id: str, memory: LayeredMemory) -> Path:
+        path = self._memory_path(session_id)
+        path.write_text(json.dumps(memory.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return path
+
+    def load_memory(self, session_id: str, *, default: LayeredMemory | None = None) -> LayeredMemory:
+        path = self._memory_path(session_id)
+        if not path.exists():
+            if default is not None:
+                return default
+            raise FileNotFoundError(f"Memory for session '{session_id}' does not exist")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return LayeredMemory.from_dict(payload)
 
     def compact_messages(
         self,
@@ -75,6 +92,48 @@ class ContextManager:
         )
         return bundle
 
+    def prepare_role_context(
+        self,
+        *,
+        session_id: str,
+        task: str,
+        role: str,
+        state: dict[str, object],
+        workspace_dir: Path,
+        max_chars: int = 600,
+        trigger_reason: str = "prepare_context",
+    ) -> tuple[dict[str, object], object, LayeredMemory, object]:
+        try:
+            messages = self.load_session(session_id)
+        except FileNotFoundError:
+            messages = []
+        memory, audit = self.lifecycle_manager.maintain(
+            session_id=session_id,
+            task=task,
+            role=role,
+            state=state,
+            workspace_dir=Path(workspace_dir),
+            messages=messages,
+            trigger_reason=trigger_reason,
+        )
+        enriched_state = {
+            **state,
+            "memory_state": memory.to_dict(),
+            "context_audit_records": [
+                *[item for item in state.get("context_audit_records", []) if isinstance(item, dict)],
+                audit.to_dict(),
+            ],
+        }
+        bundle, record = self.policy_runtime.build_bundle(
+            session_id=session_id,
+            role=role,
+            task=task,
+            state=enriched_state,
+            workspace_dir=Path(workspace_dir),
+            max_chars=max_chars,
+        )
+        return bundle, record, memory, audit
+
     @staticmethod
     def total_chars(messages: Iterable[BaseMessage]) -> int:
         return sum(len(ContextManager._string_content(message)) for message in messages)
@@ -82,11 +141,24 @@ class ContextManager:
     def _session_path(self, session_id: str) -> Path:
         return self.context_dir / f"{session_id}.json"
 
+    def _memory_path(self, session_id: str) -> Path:
+        return self.context_dir / f"{session_id}.memory.json"
+
     @staticmethod
     def _string_content(message: BaseMessage) -> str:
         if isinstance(message.content, str):
             return message.content
         return str(message.content)
+
+    @staticmethod
+    def string_content(message: BaseMessage) -> str:
+        return ContextManager._string_content(message)
+
+    def serialize_message(self, message: BaseMessage) -> dict[str, str]:
+        return self._serialize_message(message)
+
+    def deserialize_message(self, payload: dict[str, str]) -> BaseMessage:
+        return self._deserialize_message(payload)
 
     def _summarize_message(self, message: BaseMessage) -> str:
         content = self._string_content(message).strip().replace("\n", " ")

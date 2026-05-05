@@ -41,6 +41,9 @@ def _state_snapshot(state: dict[str, object]) -> list[str]:
     pending = len(state.get("pending_tasks", []))
     roles = state.get("role_records", [])
     last_role = roles[-1]["role"] if roles else "n/a"
+    memory_state = state.get("memory_state", {})
+    memory_layers = len(memory_state) if isinstance(memory_state, dict) else 0
+    audits = state.get("context_audit_records", [])
     lines = [
         f"session_id: {state.get('session_id', '')}",
         f"loop_status: {state.get('loop_status', '')}",
@@ -49,6 +52,8 @@ def _state_snapshot(state: dict[str, object]) -> list[str]:
         f"pending_tasks: {pending}",
         f"tool_results: {len(state.get('tool_results', []))}",
         f"role_records: {len(roles)} (last={last_role})",
+        f"memory_layers: {memory_layers}",
+        f"context_audits: {len(audits) if isinstance(audits, list) else 0}",
     ]
     if state.get("active_task"):
         lines.append(f"active_task: {state['active_task']}")
@@ -74,8 +79,9 @@ def _shell_status_line(state: dict[str, object]) -> str:
     role = str(state.get("current_role", "") or "-")
     loop_status = str(state.get("loop_status", "") or "-")
     iteration = int(state.get("iteration_count", 0))
+    audits = len(state.get("context_audit_records", [])) if isinstance(state.get("context_audit_records", []), list) else 0
     return (
-        f"[status] loop={loop_status} iteration={iteration} role={role} active_task={active_task}"
+        f"[status] loop={loop_status} iteration={iteration} role={role} audits={audits} active_task={active_task}"
     )
 
 
@@ -594,9 +600,14 @@ def session_show(session_id: str = typer.Argument(..., help="Persisted session i
     """Show one persisted session and its latest recorded turn."""
 
     application = AgentOsApp.bootstrap()
+    try:
+        memory = application.context_manager.load_memory(session_id).to_dict()
+    except FileNotFoundError:
+        memory = {}
     payload = {
         "session": application.session_manager.get_session(session_id).to_dict(),
         "latest_turn": application.session_manager.load_latest_turn(session_id),
+        "memory_state": memory,
     }
     _echo_json(payload)
 

@@ -49,7 +49,7 @@ context-demo:
 	PYTHONPATH=src $(PYTHON) -m agentos.cli context-demo
 
 test:
-	$(PYTEST) tests/test_bootstrap.py tests/test_cli.py tests/test_imports.py tests/test_harness_execution.py tests/test_langgraph_runtime.py tests/test_task_manager.py tests/test_task_cli.py tests/test_knowledge_loader.py tests/test_context_manager.py tests/test_context_cli.py tests/test_background_manager.py tests/test_workspace_manager.py tests/test_execution_control_cli.py tests/test_coordination_manager.py tests/test_coordination_cli.py tests/test_tool_registry.py tests/test_packaged_cli.py
+	$(PYTEST) tests/test_bootstrap.py tests/test_cli.py tests/test_imports.py tests/test_harness_execution.py tests/test_langgraph_runtime.py tests/test_task_manager.py tests/test_task_cli.py tests/test_knowledge_loader.py tests/test_context_manager.py tests/test_context_lifecycle.py tests/test_context_cli.py tests/test_background_manager.py tests/test_workspace_manager.py tests/test_execution_control_cli.py tests/test_coordination_manager.py tests/test_coordination_cli.py tests/test_tool_registry.py tests/test_packaged_cli.py tests/test_session_manager.py
 
 verify-env:
 	bash scripts/verify_env.sh

@@ -148,6 +148,7 @@ class AgentShellApp(App[None]):
                             active_task=str(state.get("active_task", "-")),
                             current_role=str(state.get("current_role", "-")),
                             tool_count=len(state.get("tool_results", [])),
+                            audit_count=len(state.get("context_audit_records", [])),
                         )
                         last_trace_len = len(trace)
         except Exception as exc:
@@ -174,6 +175,7 @@ class AgentShellApp(App[None]):
             active_task=str(latest_state.get("active_task", "-")),
             current_role=str(latest_state.get("current_role", "-")),
             tool_count=len(latest_state.get("tool_results", [])),
+            audit_count=len(latest_state.get("context_audit_records", [])),
         )
         self.call_from_thread(self._finish_turn)
 
@@ -194,6 +196,7 @@ class AgentShellApp(App[None]):
         active_task: str = "-",
         current_role: str = "-",
         tool_count: int = 0,
+        audit_count: int = 0,
     ) -> None:
         status = self.query_one("#status", Static)
         model_state = "ready" if self.application.model_runtime.is_configured() else "deterministic"
@@ -203,7 +206,7 @@ class AgentShellApp(App[None]):
                     f"session={self.session_id}  workspace={self.application.settings.workspace_dir}",
                     (
                         "mode="
-                        f"{model_state}  loop={loop_status}  role={current_role}  tools={tool_count}"
+                        f"{model_state}  loop={loop_status}  role={current_role}  tools={tool_count}  audits={audit_count}"
                     ),
                     (
                         "models="
@@ -221,8 +224,9 @@ class AgentShellApp(App[None]):
         role = str(state.get("current_role", "") or "-")
         loop_status = str(state.get("loop_status", "") or "-")
         iteration = int(state.get("iteration_count", 0))
+        audits = len(state.get("context_audit_records", [])) if isinstance(state.get("context_audit_records", []), list) else 0
         return (
-            f"loop={loop_status} iteration={iteration} role={role} active_task={active_task}"
+            f"loop={loop_status} iteration={iteration} role={role} audits={audits} active_task={active_task}"
         )
 
     def _looks_like_legacy_task(self, task: str) -> bool:

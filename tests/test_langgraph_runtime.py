@@ -26,6 +26,9 @@ def test_runtime_runs_tool_enabled_task():
     assert state["tool_results"][0]["tool_name"] == "shell_command"
     assert state["context_bundle"]["task_hints"]["action"] == "run"
     assert "workspace" in state["context_bundle"]["sources"]
+    assert "layered_memory" in state["context_bundle"]["sources"]
+    assert state["memory_state"]["session_summary"]
+    assert state["context_audit_records"]
     assert state["iteration_count"] == 1
     assert state["loop_status"] == "completed"
 
@@ -145,6 +148,7 @@ def test_runtime_context_selection_changes_with_task_and_history_size(tmp_path: 
     assert bundle["role_view"]["focus"] == "execution"
     assert "history" in bundle["sources"]
     assert "tool_results" in bundle["sources"]
+    assert "layered_memory" in bundle["sources"]
     assert "..." in bundle["history_summary"] or "..." in bundle["tool_summary"] or "..." in bundle["trace_summary"]
 
 
@@ -159,6 +163,7 @@ def test_runtime_persists_context_policy_records(tmp_path: Path, monkeypatch):
     )
 
     assert state["context_policy_records"]
+    assert state["context_audit_records"]
     record = state["context_policy_records"][0]
     assert "task_hints" in record["selectors"]
     assert "workspace_signals" in record["retrievers"]

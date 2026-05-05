@@ -23,6 +23,7 @@ agentos --help
 2. 确认默认进入常驻 shell，而不是只打印帮助
 3. 如果模型未配置，确认会看到 `.env.example` 与 `OPENAI_API_KEY` 的引导
 4. 如果模型已配置，确认可以直接输入自然语言任务
+5. 如果要验证语义记忆的模型压缩路径，显式设置 `AGENTOS_CONTEXT_MODEL_COMPRESSION=1`
 
 ## 命令面验证
 
@@ -51,6 +52,23 @@ agentos watch shell
 1. 执行 `agentos shell --plain`
 2. 确认仍能稳定进入 plain shell
 3. 确认 banner、状态输出和最终回答可读
+
+## 长会话上下文验证
+
+1. 执行 `agentos shell --plain --session-id context-demo`
+2. 连续输入多轮任务，至少覆盖：
+   - 普通自然语言请求
+   - 文件读取或搜索
+   - 一次测试或命令执行
+   - 一次失败场景
+3. 执行 `agentos session-show context-demo`
+4. 确认输出里存在：
+   - `memory_state`
+   - `working_memory`
+   - `tool_facts`
+   - `failure_memory`
+   - `lifecycle_audits`
+5. 确认 session 恢复后这些结构化字段仍然可见
 
 ## 回归验证
 

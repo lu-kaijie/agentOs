@@ -84,6 +84,8 @@ class SessionManager:
             "role_handoffs": list(state.get("role_handoffs", [])),
             "tool_results": list(state.get("tool_results", [])),
             "context_policy_records": list(state.get("context_policy_records", [])),
+            "memory_state": dict(state.get("memory_state", {})),
+            "context_audit_records": list(state.get("context_audit_records", [])),
         }
         if not carryover["pending_tasks"]:
             carryover.update(
@@ -100,6 +102,8 @@ class SessionManager:
                     "role_handoffs": [],
                     "tool_results": [],
                     "context_policy_records": [],
+                    "memory_state": {},
+                    "context_audit_records": [],
                 }
             )
         return carryover, user_task
