@@ -89,10 +89,29 @@ make verify-env
 当前主线最推荐的体验方式：
 
 ```bash
-export OPENAI_API_KEY=...
-export OPENAI_BASE_URL=...
+cp .env.example .env
+# 填入 OPENAI_API_KEY / OPENAI_BASE_URL
 
 make shell-model
+```
+
+模型配置说明：
+
+- 先定义三挡模型池：`AGENTOS_MODEL_SMALL`、`AGENTOS_MODEL_MEDIUM`、`AGENTOS_MODEL_LARGE`
+- 再让不同 role 只选择使用哪一挡：`AGENTOS_PLANNER_MODEL_LEVEL`、`AGENTOS_EXECUTOR_MODEL_LEVEL`、`AGENTOS_REVIEWER_MODEL_LEVEL`
+- 可选级别为：`small`、`medium`、`large`
+- 当前默认值是三挡都先指向 `gpt-5.4`，三个 role 默认都使用 `medium`
+
+例如：
+
+```env
+AGENTOS_MODEL_SMALL=gpt-5.4
+AGENTOS_MODEL_MEDIUM=gpt-5.4
+AGENTOS_MODEL_LARGE=gpt-5.4
+
+AGENTOS_PLANNER_MODEL_LEVEL=medium
+AGENTOS_EXECUTOR_MODEL_LEVEL=medium
+AGENTOS_REVIEWER_MODEL_LEVEL=medium
 ```
 
 进入 shell 后，直接输入自然语言任务，例如：
