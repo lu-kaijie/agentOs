@@ -38,7 +38,7 @@ class Settings:
         """Load settings from the environment."""
 
         load_dotenv()
-        project_root = Path(__file__).resolve().parents[2]
+        project_root = Path(os.getenv("AGENTOS_PROJECT_ROOT", str(Path.cwd()))).resolve()
         workspace_dir = Path(os.getenv("AGENTOS_WORKSPACE", str(project_root)))
         tasks_dir = Path(os.getenv("AGENTOS_TASKS_DIR", str(project_root / ".agentos" / "tasks")))
         knowledge_dir = Path(os.getenv("AGENTOS_KNOWLEDGE_DIR", str(project_root / "knowledge")))

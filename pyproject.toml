@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentos"
+version = "0.1.0"
+description = "A LangChain and LangGraph based coding-agent shell."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "langchain==0.3.26",
+  "langgraph==0.2.62",
+  "langchain-openai==0.2.14",
+  "openai==1.58.1",
+  "python-dotenv==1.0.1",
+  "pydantic==2.10.4",
+  "typer==0.15.1",
+  "click==8.1.8",
+  "textual==0.89.1",
+]
+
+[project.scripts]
+agentos = "agentos.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

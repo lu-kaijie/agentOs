@@ -5,3 +5,5 @@ openai==1.58.1
 python-dotenv==1.0.1
 pydantic==2.10.4
 typer==0.15.1
+click==8.1.8
+textual==0.89.1

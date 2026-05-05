@@ -97,6 +97,43 @@ class AgentOsApp:
         payload["reviewer_model_level"] = self.settings.reviewer_model_level
         return payload
 
+    def model_setup_guidance(self) -> list[str]:
+        """Return user-facing setup guidance for the model-backed product path."""
+
+        lines = [
+            "未检测到可用的模型配置，当前只能稳定使用非模型路径。",
+            "如需启用常驻真实模型 agent shell，请准备以下配置：",
+            "1. 复制 `.env.example` 为 `.env`",
+            "2. 填写 `OPENAI_API_KEY`",
+            "3. 如使用兼容网关，可额外填写 `OPENAI_BASE_URL`",
+            "   同时确认该网关兼容当前模型路径所需的 tool calling / agent loop 能力",
+            "4. 按需调整三挡模型：`AGENTOS_MODEL_SMALL`、`AGENTOS_MODEL_MEDIUM`、`AGENTOS_MODEL_LARGE`",
+            "5. 按需调整 role 映射：`AGENTOS_PLANNER_MODEL_LEVEL`、`AGENTOS_EXECUTOR_MODEL_LEVEL`、`AGENTOS_REVIEWER_MODEL_LEVEL`",
+        ]
+        return lines
+
+    def shell_banner_lines(self, *, session_id: str) -> list[str]:
+        """Return product-oriented shell banner lines."""
+
+        model_state = "ready" if self.model_runtime.is_configured() else "not-configured"
+        return [
+            f"agentOs shell session: {session_id}",
+            f"workspace: {self.settings.workspace_dir}",
+            (
+                "models: "
+                f"small={self.settings.model_small_name} "
+                f"medium={self.settings.model_medium_name} "
+                f"large={self.settings.model_large_name}"
+            ),
+            (
+                "roles: "
+                f"planner={self.settings.planner_model_level} "
+                f"executor={self.settings.executor_model_level} "
+                f"reviewer={self.settings.reviewer_model_level}"
+            ),
+            f"model_runtime: {model_state}",
+        ]
+
     def run_session_task(
         self,
         task: str,

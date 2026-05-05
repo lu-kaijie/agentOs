@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import sys
 import time
 
 import typer
@@ -16,7 +17,8 @@ from agentos.tools import ToolInvocation
 
 app = typer.Typer(
     add_completion=False,
-    no_args_is_help=True,
+    invoke_without_command=True,
+    no_args_is_help=False,
     help="agentOs command line interface.",
 )
 
@@ -25,6 +27,11 @@ def _echo_json(payload: object) -> None:
     """Render CLI JSON with readable UTF-8 output."""
 
     typer.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def _echo_lines(lines: list[str]) -> None:
+    for line in lines:
+        typer.echo(line)
 
 
 def _state_snapshot(state: dict[str, object]) -> list[str]:
@@ -75,6 +82,156 @@ def _shell_status_line(state: dict[str, object]) -> str:
 def _looks_like_legacy_task(task: str) -> bool:
     prefixes = ("run:", "knowledge:", "search:", "read:", "write:", "patch:", "test:", "steps:", "code:")
     return task.strip().startswith(prefixes)
+
+
+def _print_model_guidance(application: AgentOsApp) -> None:
+    _echo_lines(application.model_setup_guidance())
+
+
+def _render_model_runtime_error(exc: Exception) -> str:
+    return f"model-backed runtime failed: {exc}"
+
+
+def _textual_shell_available() -> bool:
+    return bool(
+        hasattr(sys.stdin, "isatty")
+        and hasattr(sys.stdout, "isatty")
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+    )
+
+
+def _run_plain_shell(
+    *,
+    application: AgentOsApp,
+    session_id: str,
+    approve: bool,
+    max_iterations: int,
+) -> None:
+    typer.echo(f"agentOs interactive shell started for session `{session_id}`.")
+    _echo_lines(application.shell_banner_lines(session_id=session_id))
+    if not application.model_runtime.is_configured():
+        _print_model_guidance(application)
+    typer.echo("输入任务开始工作；输入 `/exit` 退出，`/status` 查看当前 session。")
+
+    while True:
+        try:
+            user_task = typer.prompt("agentos")
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("\nagentOs shell closed.")
+            return
+
+        command = user_task.strip()
+        if not command:
+            continue
+        if command in {"/exit", "exit", "quit", ":q"}:
+            typer.echo("agentOs shell closed.")
+            return
+        if command == "/status":
+            try:
+                payload = {
+                    "session": application.session_manager.get_session(session_id).to_dict(),
+                    "latest_turn": application.session_manager.load_latest_turn(session_id),
+                }
+                _echo_json(payload)
+            except FileNotFoundError:
+                typer.echo("当前 shell session 还没有任何 turn 记录。")
+            continue
+
+        latest_state: dict[str, object] | None = None
+        if application.model_runtime.is_configured() and not _looks_like_legacy_task(command):
+            typer.echo("[mode] model-backed")
+            try:
+                latest_state = application.run_model_session_task(
+                    command,
+                    session_id=session_id,
+                    approve=approve,
+                )
+            except Exception as exc:
+                typer.echo(_render_model_runtime_error(exc))
+                _print_model_guidance(application)
+                continue
+            typer.echo(_shell_status_line(latest_state))
+            typer.echo("assistant>")
+            typer.echo(str(latest_state.get("final_output", "")).rstrip())
+            continue
+
+        last_trace_len = -1
+        for state in application.stream_session_task(
+            command,
+            session_id=session_id,
+            approve=approve,
+            max_iterations=max_iterations,
+        ):
+            latest_state = state
+            trace = [str(item) for item in state.get("execution_trace", [])]
+            if len(trace) != last_trace_len:
+                typer.echo(_shell_status_line(state))
+                last_trace_len = len(trace)
+        if latest_state is None:
+            typer.echo("本轮没有产生状态更新。")
+            continue
+
+        typer.echo("assistant>")
+        typer.echo(str(latest_state.get("final_output", "")).rstrip())
+
+
+def _launch_shell(
+    *,
+    session_id: str,
+    approve: bool,
+    max_iterations: int,
+    presentation: str = "auto",
+) -> None:
+    application = AgentOsApp.bootstrap()
+    if presentation == "tui" or (presentation == "auto" and _textual_shell_available()):
+        try:
+            from agentos.shell_tui import AgentShellApp
+        except Exception:
+            _run_plain_shell(
+                application=application,
+                session_id=session_id,
+                approve=approve,
+                max_iterations=max_iterations,
+            )
+            return
+        AgentShellApp(
+            application=application,
+            session_id=session_id,
+            approve=approve,
+            max_iterations=max_iterations,
+        ).run()
+        return
+
+    _run_plain_shell(
+        application=application,
+        session_id=session_id,
+        approve=approve,
+        max_iterations=max_iterations,
+    )
+
+
+@app.callback()
+def default_entry(
+    ctx: typer.Context,
+    session_id: str = typer.Option("shell", "--session-id", help="Persistent shell session id."),
+    approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
+    max_iterations: int = typer.Option(8, "--max-iterations", min=1, help="Bounded runtime loop limit per turn."),
+    plain: bool = typer.Option(False, "--plain", help="Force the plain shell presentation."),
+    tui: bool = typer.Option(False, "--tui", help="Force the Textual shell presentation."),
+) -> None:
+    """Launch the default packaged shell when no subcommand is supplied."""
+
+    if ctx.invoked_subcommand is not None:
+        return
+    presentation = "tui" if tui else "plain" if plain else "auto"
+    _launch_shell(
+        session_id=session_id,
+        approve=approve,
+        max_iterations=max_iterations,
+        presentation=presentation,
+    )
+    raise typer.Exit()
 
 
 def _unit_summary_lines(summary: dict[str, object], *, unit_id: int | None = None) -> list[str]:
@@ -130,6 +287,9 @@ def run(
     application = AgentOsApp.bootstrap()
     try:
         if model:
+            if not application.model_runtime.is_configured():
+                _print_model_guidance(application)
+                raise typer.Exit(code=1)
             state = application.run_model_session_task(
                 task,
                 session_id=session_id,
@@ -142,8 +302,9 @@ def run(
                 approve=approve,
                 max_iterations=max_iterations,
             )
-    except RuntimeError as exc:
-        typer.echo(f"model-backed runtime failed: {exc}")
+    except Exception as exc:
+        typer.echo(_render_model_runtime_error(exc))
+        _print_model_guidance(application)
         raise typer.Exit(code=1) from exc
     _echo_state_report("agentOs LangGraph runtime executed.", state)
 
@@ -504,72 +665,18 @@ def shell(
     session_id: str = typer.Option("shell", "--session-id", help="Persistent shell session id."),
     approve: bool = typer.Option(False, "--approve", help="Approve execution when required."),
     max_iterations: int = typer.Option(8, "--max-iterations", min=1, help="Bounded runtime loop limit per turn."),
+    plain: bool = typer.Option(False, "--plain", help="Force the plain shell presentation."),
+    tui: bool = typer.Option(False, "--tui", help="Force the Textual shell presentation."),
 ) -> None:
     """Run a persistent interactive agent shell."""
 
-    application = AgentOsApp.bootstrap()
-    typer.echo(f"agentOs interactive shell started for session `{session_id}`.")
-    typer.echo("输入任务开始工作；输入 `/exit` 退出，`/status` 查看当前 session。")
-
-    while True:
-        try:
-            user_task = typer.prompt("agentos")
-        except (EOFError, KeyboardInterrupt):
-            typer.echo("\nagentOs shell closed.")
-            return
-
-        command = user_task.strip()
-        if not command:
-            continue
-        if command in {"/exit", "exit", "quit", ":q"}:
-            typer.echo("agentOs shell closed.")
-            return
-        if command == "/status":
-            try:
-                payload = {
-                    "session": application.session_manager.get_session(session_id).to_dict(),
-                    "latest_turn": application.session_manager.load_latest_turn(session_id),
-                }
-                _echo_json(payload)
-            except FileNotFoundError:
-                typer.echo("当前 shell session 还没有任何 turn 记录。")
-            continue
-
-        latest_state: dict[str, object] | None = None
-        if application.model_runtime.is_configured() and not _looks_like_legacy_task(command):
-            typer.echo("[mode] model-backed")
-            try:
-                latest_state = application.run_model_session_task(
-                    command,
-                    session_id=session_id,
-                    approve=approve,
-                )
-            except RuntimeError as exc:
-                typer.echo(f"model-backed runtime failed: {exc}")
-                continue
-            typer.echo(_shell_status_line(latest_state))
-            typer.echo("assistant>")
-            typer.echo(str(latest_state.get("final_output", "")).rstrip())
-            continue
-
-        last_trace_len = -1
-        for state in application.stream_session_task(
-            command,
-            session_id=session_id,
-            approve=approve,
-            max_iterations=max_iterations,
-        ):
-            latest_state = state
-            trace = [str(item) for item in state.get("execution_trace", [])]
-            if len(trace) != last_trace_len:
-                typer.echo(_shell_status_line(state))
-                last_trace_len = len(trace)
-        if latest_state is None:
-            typer.echo("本轮没有产生状态更新。")
-            continue
-
-        typer.echo("assistant>")
-        typer.echo(str(latest_state.get("final_output", "")).rstrip())
+    presentation = "tui" if tui else "plain" if plain else "auto"
+    _launch_shell(
+        session_id=session_id,
+        approve=approve,
+        max_iterations=max_iterations,
+        presentation=presentation,
+    )
 
 
 def main() -> None:

@@ -1,8 +1,8 @@
 # agentOs
 
-`agentOs` 是一个分阶段构建的 coding-agent harness 项目。
+`agentOs` 是一个基于 `LangChain` 与 `LangGraph` 构建的 coding-agent CLI 产品原型。
 
-目标不是做一个一次性 demo，而是在可运行、可发布、可继续演进的前提下，一步一步实现一个具备实际可用性的 agent 系统。项目会把 `agent runtime`、`harness`、`task control plane` 和 `LangChain/LangGraph` 的关键能力逐层展开，保证每个阶段都能独立理解、独立提交、独立打 tag。
+当前主线目标不是再做教学式 demo，而是把它收敛成一个可以安装、可以直接启动、可以持续交互的终端 agent：安装后执行 `agentos`，直接进入常驻交互式 shell，围绕代码阅读、工具调用、状态查看、会话恢复和持续观察来工作。
 
 ## 当前状态
 
@@ -35,20 +35,120 @@
 
 它仍然不是完整商业级 Claude Code 复刻，但已经是一个可跑、可连续交互、可执行常见 coding 场景的 agent shell 原型。
 
-## Environment Setup
+## 产品使用
+
+推荐先安装到项目虚拟环境 `.venv-agentos`，再直接使用 `agentos` 命令。
+
+```bash
+python3 -m venv .venv-agentos
+source .venv-agentos/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+python -m pip install -e .
+```
+
+```bash
+cp .env.example .env
+```
+
+然后在 `.env` 中至少填写：
+
+```env
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=...
+```
+
+如果你暂时不填模型配置，`agentos` 仍然可以启动，但会给出提示，并稳定退回到非模型路径。
+
+最常用的产品命令面如下：
+
+```bash
+agentos
+agentos shell
+agentos run "请先阅读 README.md，然后总结当前项目状态" --model
+agentos status
+agentos session-show shell
+agentos watch shell
+```
+
+这些命令的职责：
+
+- `agentos`
+  默认进入常驻交互式 shell
+- `agentos shell`
+  显式进入同一个 shell
+- `agentos run`
+  执行单轮任务，适合快速试跑或脚本化调用
+- `agentos status`
+  查看工作区、模型层级、runtime 状态
+- `agentos session-show`
+  查看指定 session 的持久化状态
+- `agentos watch`
+  持续观察指定 session 的状态推进
+
+推荐体验路径：
+
+```bash
+agentos
+```
+
+进入 shell 后，直接输入自然语言任务，例如：
+
+```text
+请先阅读 README.md，然后总结当前项目状态
+搜索 tests 里和 context policy 相关的测试
+如果 README 里没有安装后直接启动的说明，补充一下并告诉我改了什么
+运行测试并汇报结果
+```
+
+如果你想直接走单轮真实模型路径：
+
+```bash
+agentos run "阅读 README.md 并总结当前项目状态" --model
+```
+
+模型配置说明：
+
+- 先定义三挡模型池：`AGENTOS_MODEL_SMALL`、`AGENTOS_MODEL_MEDIUM`、`AGENTOS_MODEL_LARGE`
+- 再让不同 role 只选择使用哪一挡：`AGENTOS_PLANNER_MODEL_LEVEL`、`AGENTOS_EXECUTOR_MODEL_LEVEL`、`AGENTOS_REVIEWER_MODEL_LEVEL`
+- 可选级别为：`small`、`medium`、`large`
+- 当前默认值是三挡都先指向 `gpt-5.4`，三个 role 默认都使用 `medium`
+
+例如：
+
+```env
+AGENTOS_MODEL_SMALL=gpt-5.4
+AGENTOS_MODEL_MEDIUM=gpt-5.4
+AGENTOS_MODEL_LARGE=gpt-5.4
+
+AGENTOS_PLANNER_MODEL_LEVEL=medium
+AGENTOS_EXECUTOR_MODEL_LEVEL=medium
+AGENTOS_REVIEWER_MODEL_LEVEL=medium
+```
+
+如果你想显式体验 deterministic / legacy 路径：
+
+```bash
+agentos run "code: steps: read: README.md | write: notes.txt => demo | test: python -c print(321)" --session-id role-demo --max-iterations 5
+agentos session-show role-demo
+```
+
+更完整的产品体验说明见：
+
+- [docs/product-usage.md](/home/mi/agentOs/docs/product-usage.md:1)
+- [docs/product-verification-checklist.md](/home/mi/agentOs/docs/product-verification-checklist.md:1)
+
+## 开发环境
 
 当前阶段统一使用 Python `3.10` 和项目本地虚拟环境 `.venv-agentos`。
+
+如果你是在开发仓库本身，而不是只作为产品使用，建议执行：
 
 ```bash
 python3 -m venv .venv-agentos
 source .venv-agentos/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt -r requirements-dev.txt
-```
-
-完成安装后，运行：
-
-```bash
 bash scripts/verify_env.sh
 ```
 
@@ -82,61 +182,7 @@ make test
 make verify-env
 ```
 
-第二条 change 的分阶段体验说明见：
-
-- [docs/second-change-milestones.md](/home/mi/agentOs/docs/second-change-milestones.md:1)
-
-当前主线最推荐的体验方式：
-
-```bash
-cp .env.example .env
-# 填入 OPENAI_API_KEY / OPENAI_BASE_URL
-
-make shell-model
-```
-
-模型配置说明：
-
-- 先定义三挡模型池：`AGENTOS_MODEL_SMALL`、`AGENTOS_MODEL_MEDIUM`、`AGENTOS_MODEL_LARGE`
-- 再让不同 role 只选择使用哪一挡：`AGENTOS_PLANNER_MODEL_LEVEL`、`AGENTOS_EXECUTOR_MODEL_LEVEL`、`AGENTOS_REVIEWER_MODEL_LEVEL`
-- 可选级别为：`small`、`medium`、`large`
-- 当前默认值是三挡都先指向 `gpt-5.4`，三个 role 默认都使用 `medium`
-
-例如：
-
-```env
-AGENTOS_MODEL_SMALL=gpt-5.4
-AGENTOS_MODEL_MEDIUM=gpt-5.4
-AGENTOS_MODEL_LARGE=gpt-5.4
-
-AGENTOS_PLANNER_MODEL_LEVEL=medium
-AGENTOS_EXECUTOR_MODEL_LEVEL=medium
-AGENTOS_REVIEWER_MODEL_LEVEL=medium
-```
-
-进入 shell 后，直接输入自然语言任务，例如：
-
-```text
-请先阅读 README.md，然后总结当前项目状态
-搜索 tests 里和 context policy 相关的测试
-如果 README 里没有 shell-model 用法，补充一下并告诉我改了什么
-运行测试并汇报结果
-```
-
-如果你想体验单轮真实模型路径：
-
-```bash
-make run-model
-```
-
-如果你想体验显式 deterministic / legacy 路径：
-
-```bash
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli run "code: steps: read: README.md | write: notes.txt => demo | test: python -c print(321)" --session-id role-demo --max-iterations 5
-PYTHONPATH=src .venv-agentos/bin/python -m agentos.cli session-show role-demo
-```
-
-里程碑级体验说明见：
+历史里程碑体验说明见：
 
 - [docs/milestones/v0.22.0.md](/home/mi/agentOs/docs/milestones/v0.22.0.md:1)
 - [docs/milestones/v0.23.0.md](/home/mi/agentOs/docs/milestones/v0.23.0.md:1)
