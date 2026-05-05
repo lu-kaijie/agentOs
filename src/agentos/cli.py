@@ -95,7 +95,11 @@ def _print_model_guidance(application: AgentOsApp) -> None:
 
 
 def _render_model_runtime_error(exc: Exception) -> str:
-    return f"model-backed runtime failed: {exc}"
+    lines = [f"model-backed runtime failed: {exc}"]
+    debug_lines = getattr(exc, "debug_lines", [])
+    if isinstance(debug_lines, list):
+        lines.extend(str(line) for line in debug_lines)
+    return "\n".join(lines)
 
 
 def _textual_shell_available() -> bool:
@@ -155,7 +159,8 @@ def _run_plain_shell(
                 )
             except Exception as exc:
                 typer.echo(_render_model_runtime_error(exc))
-                _print_model_guidance(application)
+                if not application.model_runtime.is_configured():
+                    _print_model_guidance(application)
                 continue
             typer.echo(_shell_status_line(latest_state))
             typer.echo("assistant>")
@@ -310,7 +315,8 @@ def run(
             )
     except Exception as exc:
         typer.echo(_render_model_runtime_error(exc))
-        _print_model_guidance(application)
+        if not application.model_runtime.is_configured():
+            _print_model_guidance(application)
         raise typer.Exit(code=1) from exc
     _echo_state_report("agentOs LangGraph runtime executed.", state)
 

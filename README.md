@@ -72,6 +72,7 @@ agentos watch shell
 - [一步一步构建历程](docs/learn/build-journey.md)
 - [Change 地图](docs/learn/change-map.md)
 - [系统总览](docs/architecture/system-overview.md)
+- [持续交互主链路详解](docs/architecture/interactive-mainline-deep-dive.md)
 - [运行链路](docs/architecture/runtime-flow.md)
 - [上下文引擎](docs/architecture/context-engine.md)
 - [工具运行时](docs/architecture/tool-runtime.md)

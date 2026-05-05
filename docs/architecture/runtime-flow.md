@@ -1,5 +1,9 @@
 # 运行链路
 
+如果你想看结合代码、按函数名展开的详细版，请先读：
+
+- [持续交互主链路详解](interactive-mainline-deep-dive.md)
+
 ## 交互式 shell 主链路
 
 当你执行 `agentos` 时，主链路大致是：

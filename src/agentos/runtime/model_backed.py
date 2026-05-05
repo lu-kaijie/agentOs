@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -16,6 +16,14 @@ from agentos.context import ContextManager
 from agentos.runtime.roles import PlannerRoleAgent, ReviewerRoleAgent, RoleInput
 from agentos.tools import ToolRegistry
 from agentos.tools.registry import tool_runtime_context
+
+
+class ModelBackedRuntimeError(RuntimeError):
+    """Runtime error that carries model-facing debug context."""
+
+    def __init__(self, message: str, *, debug_lines: list[str] | None = None):
+        super().__init__(message)
+        self.debug_lines = debug_lines or []
 
 
 class PlannerPlan(BaseModel):
@@ -115,8 +123,20 @@ class ModelBackedAgentRuntime:
                 )
             ),
         ]
-        planner_raw = planner_model.invoke(planner_prompt)
-        planner_plan = self._parse_structured_response(planner_parser, planner_raw)
+        try:
+            planner_raw = planner_model.invoke(planner_prompt)
+            planner_plan = self._parse_structured_response(planner_parser, planner_raw)
+        except Exception as exc:
+            planner_raw_text = self._safe_message_content(locals().get("planner_raw"))
+            raise ModelBackedRuntimeError(
+                f"planner stage failed: {exc}",
+                debug_lines=[
+                    "[debug] stage=planner",
+                    f"[debug] model={planner_model_name}",
+                    f"[debug] prompt_messages={len(planner_prompt)}",
+                    f"[debug] raw_output={planner_raw_text}",
+                ],
+            ) from exc
 
         executor_model_name = self.model_name_for_role("executor")
         executor_model = self.build_chat_model_for(executor_model_name)
@@ -143,8 +163,25 @@ class ModelBackedAgentRuntime:
                 )
             ),
         ]
-        with tool_runtime_context(approved=approved, collector=observed_tool_results):
-            executor_state = executor_agent.invoke({"messages": executor_messages})
+        try:
+            with tool_runtime_context(approved=approved, collector=observed_tool_results):
+                executor_state = executor_agent.invoke({"messages": executor_messages})
+        except Exception as exc:
+            raise ModelBackedRuntimeError(
+                f"executor stage failed: {exc}",
+                debug_lines=[
+                    "[debug] stage=executor",
+                    f"[debug] model={executor_model_name}",
+                    f"[debug] tool_names={','.join(tool.name for tool in self.tool_registry.as_langchain_tools())}",
+                    f"[debug] prior_messages={len(prior_messages)}",
+                    f"[debug] executor_messages={len(executor_messages)}",
+                    f"[debug] user_task={user_task}",
+                    f"[debug] planner_summary={planner_plan.summary}",
+                    f"[debug] planner_steps={planner_plan.steps}",
+                    f"[debug] executor_context_preview={context_bundles['executor'].get('bundle_preview', '')}",
+                    f"[debug] exception_type={exc.__class__.__name__}",
+                ],
+            ) from exc
         executor_output = self._last_ai_content(executor_state.get("messages", []))
 
         reviewer_input = RoleInput(
@@ -178,10 +215,29 @@ class ModelBackedAgentRuntime:
                 )
             ),
         ]
-        reviewer_raw = reviewer_model.invoke(reviewer_prompt)
-        reviewer_verdict = self._parse_structured_response(reviewer_parser, reviewer_raw)
+        try:
+            reviewer_raw = reviewer_model.invoke(reviewer_prompt)
+            reviewer_verdict = self._parse_structured_response(reviewer_parser, reviewer_raw)
+        except Exception as exc:
+            reviewer_raw_text = self._safe_message_content(locals().get("reviewer_raw"))
+            raise ModelBackedRuntimeError(
+                f"reviewer stage failed: {exc}",
+                debug_lines=[
+                    "[debug] stage=reviewer",
+                    f"[debug] model={reviewer_model_name}",
+                    f"[debug] prompt_messages={len(reviewer_prompt)}",
+                    f"[debug] executor_output={executor_output}",
+                    f"[debug] observed_tool_results={observed_tool_results}",
+                    f"[debug] raw_output={reviewer_raw_text}",
+                ],
+            ) from exc
 
-        persisted_messages = self._normalize_messages(executor_state.get("messages", []))
+        persisted_messages = self._build_persisted_messages(
+            prior_messages=prior_messages,
+            user_task=user_task,
+            executor_output=executor_output,
+            reviewer_summary=reviewer_verdict.summary or reviewer_fallback.summary,
+        )
         self.context_manager.save_session(session_id, persisted_messages)
 
         return {
@@ -203,7 +259,7 @@ class ModelBackedAgentRuntime:
             messages = self.context_manager.load_session(session_id)
         except FileNotFoundError:
             return []
-        return self._normalize_messages(messages)
+        return self._sanitize_reusable_messages(messages)
 
     def _normalize_messages(self, messages: list[BaseMessage]) -> list[BaseMessage]:
         normalized: list[BaseMessage] = []
@@ -212,6 +268,42 @@ class ModelBackedAgentRuntime:
                 continue
             normalized.append(message)
         return normalized[-12:]
+
+    def _sanitize_reusable_messages(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Keep only safe replayable messages for the next model-backed turn."""
+
+        sanitized: list[BaseMessage] = []
+        for message in messages:
+            if isinstance(message, SystemMessage):
+                continue
+            if isinstance(message, ToolMessage):
+                continue
+            if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
+                content = self._string_content(message).strip()
+                if content:
+                    sanitized.append(AIMessage(content=content))
+                continue
+            sanitized.append(message)
+        return sanitized[-8:]
+
+    def _build_persisted_messages(
+        self,
+        *,
+        prior_messages: list[BaseMessage],
+        user_task: str,
+        executor_output: str,
+        reviewer_summary: str,
+    ) -> list[BaseMessage]:
+        """Persist a compact transcript instead of raw ReAct protocol messages."""
+
+        messages: list[BaseMessage] = [
+            *prior_messages,
+            HumanMessage(content=user_task),
+            AIMessage(content=executor_output.strip()),
+        ]
+        if reviewer_summary.strip():
+            messages.append(AIMessage(content=f"[reviewer] {reviewer_summary.strip()}"))
+        return self._sanitize_reusable_messages(messages)
 
     def _last_ai_content(self, messages: list[BaseMessage]) -> str:
         for message in reversed(messages):
@@ -223,6 +315,14 @@ class ModelBackedAgentRuntime:
         if isinstance(message.content, str):
             return message.content
         return str(message.content)
+
+    def _safe_message_content(self, message: BaseMessage | None) -> str:
+        if message is None:
+            return "<no message captured>"
+        try:
+            return self._string_content(message)
+        except Exception as exc:  # pragma: no cover - defensive formatting
+            return f"<failed to decode message: {exc}>"
 
     def _parse_structured_response(self, parser: PydanticOutputParser, message: BaseMessage):
         content = self._string_content(message).strip()

@@ -67,3 +67,21 @@ def test_run_model_handles_provider_errors_without_traceback(monkeypatch):
 
     assert result.exit_code == 1
     assert "model-backed runtime failed: tool calling unavailable" in result.stdout
+
+
+def test_shell_model_runtime_error_does_not_print_missing_config_guidance(monkeypatch):
+    from agentos.app import AgentOsApp
+    from agentos.runtime.model_backed import ModelBackedAgentRuntime
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
+    monkeypatch.setattr(
+        AgentOsApp,
+        "run_model_session_task",
+        lambda self, *args, **kwargs: (_ for _ in ()).throw(ValueError("provider rejected oversized tool output")),
+    )
+
+    result = runner.invoke(app, ["shell", "--plain"], input="这是一个什么项目代码\n/exit\n")
+
+    assert result.exit_code == 0
+    assert "model-backed runtime failed: provider rejected oversized tool output" in result.stdout
+    assert "未检测到可用的模型配置" not in result.stdout
