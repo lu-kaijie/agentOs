@@ -239,6 +239,48 @@ executor 阶段最重要的代码是：
 
 这样 executor 一旦实际调用工具，`ToolRegistry` 会把结果同步记进 `observed_tool_results`，供 reviewer 和最终 state 使用。
 
+#### 补充：model-backed 路径里的 skill 是怎么逐步加载的
+
+这条链路现在已经按“最小 catalog -> 按需 skill discovery”的方式工作，而不是默认把 `SKILL.md` 正文塞进 prompt。
+
+在进入 `ModelBackedAgentRuntime.run_turn()` 之前，`ContextManager.prepare_role_context(...)` 会给 model path 注入一个非常小的 skills 视图：
+
+- `skills_catalog`
+- `skills_available`
+- `skills_count`
+- `skills_hint`
+
+这里的 `skills_catalog` 只包含：
+
+- `name`
+- `description`
+- `when_to_use`
+
+也就是说，planner / executor / reviewer 默认只知道“仓库里有哪些 skill，大概什么时候该用”，并不知道 skill 的完整正文。
+
+如果 executor 判断某个 skill 相关，它会按下面的顺序主动拉取：
+
+1. `skill_list(role=...)`
+   重新拿一份紧凑 catalog
+2. `skill_load(name=<skill>, level="summary")`
+   先拿 skill 元信息
+3. `skill_load(name=<skill>, level="full")`
+   再拿 `SKILL.md` 主体
+4. `skill_load(name=<skill>, level="reference", target=...)`
+   最后按需拿某个 checklist / example
+
+一次已验证的模型路径样例保存在：
+
+- `.agentos/sessions/shell2/turn_0001.json`
+
+这条记录里能同时看到：
+
+- `context_bundle.skills_catalog`
+- `tool_name=skill_list`
+- `tool_name=skill_load`
+
+说明模型路径不是被动吃上下文，而是先看最小 catalog，再自己决定是否进入 deeper skill loading。
+
 #### 第四步：reviewer 做 grounded 收尾
 
 reviewer 阶段也有两层：
