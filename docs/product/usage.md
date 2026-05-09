@@ -76,6 +76,24 @@ agentos tool-run file_read --arg path=README.md
 agentos tool-run repo_search --arg query=context
 ```
 
+## Skills
+
+当前支持用户自定义 `skills/<name>/SKILL.md`，并在 model-backed 与 fallback 两条路径中复用。
+
+常用命令：
+
+```bash
+agentos skill-list
+agentos skill-show code-review
+agentos skill-show code-review --level full
+agentos tool-run skill_list --arg role=executor
+agentos tool-run skill_load --arg name=code-review
+```
+
+详细说明见：
+
+- [Skills 机制](skills.md)
+
 ## 非模型 fallback
 
 如果没有配置模型，系统会退回 deterministic 路径。你仍然可以执行显式任务 DSL：

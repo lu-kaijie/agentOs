@@ -98,12 +98,50 @@ def test_tool_list_and_tool_run(tmp_path, monkeypatch):
     assert "file_read" in names
     assert "file_patch" in names
     assert "repo_search" in names
+    assert "skill_list" in names
+    assert "skill_load" in names
 
     result = runner.invoke(app, ["tool-run", "file_read", "--arg", "path=sample.txt"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["payload"]["content"] == "中文 tool registry"
     assert "\\u4e2d\\u6587" not in result.stdout
+
+
+def test_skill_cli_commands_list_and_show(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTOS_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("AGENTOS_KNOWLEDGE_DIR", str(tmp_path / "knowledge"))
+    monkeypatch.setenv("AGENTOS_SKILLS_DIR", str(tmp_path / "skills"))
+    skill_dir = tmp_path / "skills" / "repo-explore"
+    (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: repo-explore
+description: Explore repository structure and entry points.
+triggers:
+  - repo explore
+references:
+  - references/checklist.md
+---
+
+# Repo Explore
+
+Start from top-level directories and main entry points.
+""",
+        encoding="utf-8",
+    )
+    (skill_dir / "references" / "checklist.md").write_text("explore checklist", encoding="utf-8")
+
+    listing = runner.invoke(app, ["skill-list"])
+    assert listing.exit_code == 0
+    listing_payload = json.loads(listing.stdout)
+    assert listing_payload["skills"] == ["repo-explore"]
+
+    shown = runner.invoke(app, ["skill-show", "repo-explore"])
+    assert shown.exit_code == 0
+    shown_payload = json.loads(shown.stdout)
+    assert "[skill:repo-explore]" in shown_payload["payload"]["content"]
+    assert "Start from top-level directories and main entry points." not in shown_payload["payload"]["content"]
 
 
 def test_resume_polls_and_consumes_background_result(tmp_path, monkeypatch):

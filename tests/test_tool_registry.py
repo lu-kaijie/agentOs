@@ -15,5 +15,7 @@ def test_default_tool_registry_exposes_langchain_tools():
         "file_write",
         "file_patch",
         "repo_search",
+        "skill_list",
+        "skill_load",
         "test_run",
     }

@@ -17,6 +17,7 @@ class Settings:
     workspace_dir: Path
     tasks_dir: Path
     knowledge_dir: Path
+    skills_dir: Path
     context_dir: Path
     sessions_dir: Path
     background_jobs_dir: Path
@@ -42,6 +43,7 @@ class Settings:
         workspace_dir = Path(os.getenv("AGENTOS_WORKSPACE", str(project_root)))
         tasks_dir = Path(os.getenv("AGENTOS_TASKS_DIR", str(project_root / ".agentos" / "tasks")))
         knowledge_dir = Path(os.getenv("AGENTOS_KNOWLEDGE_DIR", str(project_root / "knowledge")))
+        skills_dir = Path(os.getenv("AGENTOS_SKILLS_DIR", str(project_root / "skills")))
         context_dir = Path(os.getenv("AGENTOS_CONTEXT_DIR", str(project_root / ".agentos" / "context")))
         sessions_dir = Path(os.getenv("AGENTOS_SESSIONS_DIR", str(project_root / ".agentos" / "sessions")))
         background_jobs_dir = Path(
@@ -68,6 +70,7 @@ class Settings:
             workspace_dir=workspace_dir,
             tasks_dir=tasks_dir,
             knowledge_dir=knowledge_dir,
+            skills_dir=skills_dir,
             context_dir=context_dir,
             sessions_dir=sessions_dir,
             background_jobs_dir=background_jobs_dir,

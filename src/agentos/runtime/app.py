@@ -456,9 +456,11 @@ def _build_graph(
             **state,
             "last_result": last_result,
             "final_output": final_output,
-            "loaded_knowledge": str(payload.get("content", state["loaded_knowledge"]))
-            if decision.action == "load_knowledge"
-            else state["loaded_knowledge"],
+            "loaded_knowledge": (
+                str(payload.get("content", state["loaded_knowledge"]))
+                if decision.action == "load_knowledge" or tool_result.tool_name == "skill_load"
+                else state["loaded_knowledge"]
+            ),
             "tool_results": state["tool_results"] + [tool_result.to_dict()],
             "role_records": state["role_records"] + [role_output.to_dict()],
             "execution_trace": state["execution_trace"] + [f"tool_execute:{tool_result.tool_name}"],
@@ -517,10 +519,14 @@ def _build_graph(
         reentry_tasks = [
             _background_task_name(str(result["job_id"])) for result in background_results
         ]
-        pending_tasks = state["pending_tasks"] or [
-            *reentry_tasks,
-            *_expand_user_task(state["user_task"]),
-        ]
+        if state["pending_tasks"]:
+            pending_tasks = state["pending_tasks"]
+        else:
+            pending_tasks = [
+                *reentry_tasks,
+                *_skill_task_names(knowledge_loader, state["user_task"]),
+                *_expand_user_task(state["user_task"]),
+            ]
         return {
             **state,
             "background_results": background_results,
@@ -677,6 +683,16 @@ def _background_follow_up(result: dict[str, object]) -> str:
     return ""
 
 
+def _skill_task_names(knowledge_loader: KnowledgeLoader, user_task: str) -> list[str]:
+    task = user_task.strip()
+    if not task or task.startswith("skill:"):
+        return []
+    matches = knowledge_loader.match_skills(task)
+    if not matches:
+        return []
+    return [f"skill: {match.name}" for match in matches[:2]]
+
+
 def _compose_final_output(step_outputs: list[str]) -> str:
     """Build a stable user-facing output across loop iterations."""
 
@@ -735,6 +751,29 @@ def _decide_from_task(user_task: str) -> dict[str, object]:
             "requires_approval": False,
             "tool_name": "repo_search",
             "tool_input": {"pattern": pattern},
+        }
+
+    if user_task.startswith("skill:"):
+        payload = user_task.split(":", 1)[1].strip()
+        name, _, remainder = payload.partition("#")
+        level = "summary"
+        target = ""
+        if remainder == "full":
+            level = "full"
+        elif remainder.startswith("ref:"):
+            level = "reference"
+            target = remainder.split(":", 1)[1].strip()
+        elif remainder.startswith("script:"):
+            level = "script"
+            target = remainder.split(":", 1)[1].strip()
+        return {
+            "action": "use_tool",
+            "topic": "",
+            "response": "",
+            "command": [],
+            "requires_approval": False,
+            "tool_name": "skill_load",
+            "tool_input": {"name": name.strip(), "level": level, "target": target},
         }
 
     if user_task.startswith("read:"):

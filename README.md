@@ -55,6 +55,7 @@ agentos watch shell
 - [产品概览](docs/product/overview.md)
 - [快速上手](docs/product/quickstart.md)
 - [详细使用](docs/product/usage.md)
+- [Skills 机制](docs/product/skills.md)
 - [配置说明](docs/product/configuration.md)
 - [体验与验收](docs/product/verification.md)
 

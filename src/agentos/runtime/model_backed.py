@@ -112,6 +112,8 @@ class ModelBackedAgentRuntime:
                 content=(
                     "You are the planner for agentOs. Produce a short scoped plan for one bounded coding turn. "
                     "Prefer repository search, file read/write/patch, and test execution tools when needed. "
+                    "The context may include a compact skills catalog. Use it only to decide whether a skill may help. "
+                    "Do not assume a skill's full contents until it is loaded. "
                     "Return JSON only."
                 )
             ),
@@ -146,6 +148,9 @@ class ModelBackedAgentRuntime:
             state_modifier=(
                 "You are the executor for agentOs. Work inside the repository. "
                 "Use tools when helpful. Prefer bounded file operations and test execution. "
+                "The context may include only a compact skills catalog because context is scarce. "
+                "If a skill seems useful, first inspect the catalog or call `skill_list`, then call `skill_load` progressively: "
+                "start with `level=summary`, then `level=full`, and only then specific `reference` or `script` targets if needed. "
                 "Do not claim work you did not verify."
             ),
         )
@@ -202,7 +207,9 @@ class ModelBackedAgentRuntime:
             SystemMessage(
                 content=(
                     "You are the reviewer for agentOs. Judge whether the executor result appears grounded "
-                    "in tool output and summarize the current state for the user. Return JSON only."
+                    "in tool output and summarize the current state for the user. "
+                    "If the context or tool results show that a skill was used, apply it only to the extent that it was actually loaded. "
+                    "Return JSON only."
                 )
             ),
             HumanMessage(

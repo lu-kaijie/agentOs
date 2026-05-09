@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from agentos.context.lifecycle import ContextLifecycleManager
 from agentos.context.models import LayeredMemory
 from agentos.context.policy import ContextPolicyRuntime
+from agentos.knowledge import KnowledgeLoader
 
 
 class ContextManager:
     """Persist and compact message history."""
 
-    def __init__(self, context_dir: Path):
+    def __init__(self, context_dir: Path, *, knowledge_loader: KnowledgeLoader | None = None):
         self.context_dir = Path(context_dir)
         self.context_dir.mkdir(parents=True, exist_ok=True)
         self.policy_runtime = ContextPolicyRuntime()
         self.lifecycle_manager = ContextLifecycleManager(self)
+        self.knowledge_loader = knowledge_loader
 
     def save_session(self, session_id: str, messages: list[BaseMessage]) -> Path:
         path = self._session_path(session_id)
@@ -101,12 +103,15 @@ class ContextManager:
         state: dict[str, object],
         workspace_dir: Path,
         max_chars: int = 600,
+        skill_mode: Literal["catalog", "matched"] = "matched",
         trigger_reason: str = "prepare_context",
     ) -> tuple[dict[str, object], object, LayeredMemory, object]:
         try:
             messages = self.load_session(session_id)
         except FileNotFoundError:
             messages = []
+        matched_skills = self._matched_skills(task=task, role=role) if skill_mode == "matched" else []
+        skills_catalog = self._skills_catalog(role=role)
         memory, audit = self.lifecycle_manager.maintain(
             session_id=session_id,
             task=task,
@@ -119,6 +124,12 @@ class ContextManager:
         enriched_state = {
             **state,
             "memory_state": memory.to_dict(),
+            "active_skills": matched_skills,
+            "matched_skills": matched_skills,
+            "skills_catalog": skills_catalog,
+            "skills_available": bool(skills_catalog),
+            "skills_count": len(skills_catalog),
+            "skills_hint": self._skills_hint(skills_catalog=skills_catalog, matched_skills=matched_skills, role=role),
             "context_audit_records": [
                 *[item for item in state.get("context_audit_records", []) if isinstance(item, dict)],
                 audit.to_dict(),
@@ -132,6 +143,17 @@ class ContextManager:
             workspace_dir=Path(workspace_dir),
             max_chars=max_chars,
         )
+        bundle["active_skills"] = matched_skills
+        bundle["matched_skills"] = matched_skills
+        bundle["skills_catalog"] = skills_catalog
+        bundle["skills_available"] = bool(skills_catalog)
+        bundle["skills_count"] = len(skills_catalog)
+        bundle["skills_hint"] = self._skills_hint(
+            skills_catalog=skills_catalog,
+            matched_skills=matched_skills,
+            role=role,
+        )
+        bundle["bundle_preview"] = self.render_bundle(bundle, max_chars=max_chars)
         return bundle, record, memory, audit
 
     @staticmethod
@@ -171,6 +193,7 @@ class ContextManager:
         lines = [
             f"task={bundle.get('task', '')}",
             f"hints={json.dumps(bundle.get('task_hints', {}), ensure_ascii=False, sort_keys=True)}",
+            f"skills={bundle.get('skills_hint', '')}",
             f"history={bundle.get('history_summary', '')}",
             f"tools={bundle.get('tool_summary', '')}",
             f"trace={bundle.get('trace_summary', '')}",
@@ -286,6 +309,51 @@ class ContextManager:
         if workspace_signals:
             sources.append("workspace")
         return sources
+
+    def _matched_skills(self, *, task: str, role: str) -> list[dict[str, object]]:
+        if self.knowledge_loader is None:
+            return []
+        matched = self.knowledge_loader.match_skills(task, role)
+        return [self._skill_payload(skill=skill, role=role) for skill in matched]
+
+    def _skills_catalog(self, *, role: str) -> list[dict[str, str]]:
+        if self.knowledge_loader is None:
+            return []
+        return self.knowledge_loader.skill_catalog(role=role)
+
+    def _skill_payload(self, *, skill, role: str) -> dict[str, object]:
+        role_hint = skill.role_hints.get(role, "")
+        return {
+            "name": skill.name,
+            "description": skill.description,
+            "role_hint": role_hint,
+            "references": [reference.path for reference in skill.references],
+            "scripts": [script.path for script in skill.scripts],
+            "allowed_tools": list(skill.allowed_tools),
+            "summary": skill.summary_text(),
+        }
+
+    def _skills_hint(
+        self,
+        *,
+        skills_catalog: list[dict[str, str]],
+        matched_skills: list[dict[str, object]],
+        role: str,
+    ) -> str:
+        if not skills_catalog:
+            return ""
+        names = ", ".join(
+            str(skill.get("name", "")) for skill in skills_catalog[:6] if isinstance(skill, dict) and skill.get("name")
+        )
+        lines = [f"skills_available({role}) count={len(skills_catalog)}"]
+        if names:
+            lines.append(f"catalog: {names}")
+        if matched_skills:
+            lines.append(
+                "matched_hint: "
+                + ", ".join(str(skill.get("name", "")) for skill in matched_skills[:3] if skill.get("name"))
+            )
+        return "\n".join(lines)
 
     def _workspace_preview(self, signals: object) -> str:
         if not isinstance(signals, list):

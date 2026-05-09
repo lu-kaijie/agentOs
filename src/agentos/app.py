@@ -42,8 +42,8 @@ class AgentOsApp:
 
         settings = Settings.load()
         executor = LocalCommandExecutor()
-        knowledge_loader = KnowledgeLoader(settings.knowledge_dir)
-        context_manager = ContextManager(settings.context_dir)
+        knowledge_loader = KnowledgeLoader(settings.knowledge_dir, settings.skills_dir)
+        context_manager = ContextManager(settings.context_dir, knowledge_loader=knowledge_loader)
         session_manager = SessionManager(settings.sessions_dir)
         background_manager = BackgroundExecutionManager(settings.background_jobs_dir)
         workspace_manager = WorkspaceManager(settings.workspaces_dir)
@@ -184,6 +184,7 @@ class AgentOsApp:
             task=task,
             state=prior_state,
             workspace_dir=self.settings.workspace_dir,
+            skill_mode="catalog",
             trigger_reason="session_resume" if prior_state.get("completed_tasks") else "prepare_context",
         )
         prepared_state = {
@@ -197,6 +198,7 @@ class AgentOsApp:
             task=task,
             state=prepared_state,
             workspace_dir=self.settings.workspace_dir,
+            skill_mode="catalog",
             trigger_reason="role_handoff",
         )
         prepared_state = {
@@ -210,6 +212,7 @@ class AgentOsApp:
             task=task,
             state=prepared_state,
             workspace_dir=self.settings.workspace_dir,
+            skill_mode="catalog",
             trigger_reason="role_handoff",
         )
 

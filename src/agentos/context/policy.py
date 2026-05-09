@@ -35,6 +35,24 @@ class ContextPolicyRuntime:
             execution_trace=RunnableLambda(self._execution_trace),
             workspace_signals=RunnableLambda(self._workspace_signals),
             memory_state=RunnableLambda(self._memory_state),
+            active_skills=RunnableLambda(
+                lambda data: [
+                    item for item in data["state"].get("active_skills", []) if isinstance(item, dict)
+                ]
+            ),
+            matched_skills=RunnableLambda(
+                lambda data: [
+                    item for item in data["state"].get("matched_skills", []) if isinstance(item, dict)
+                ]
+            ),
+            skills_catalog=RunnableLambda(
+                lambda data: [
+                    item for item in data["state"].get("skills_catalog", []) if isinstance(item, dict)
+                ]
+            ),
+            skills_available=RunnableLambda(lambda data: bool(data["state"].get("skills_available", False))),
+            skills_count=RunnableLambda(lambda data: int(data["state"].get("skills_count", 0))),
+            skills_hint=RunnableLambda(lambda data: str(data["state"].get("skills_hint", ""))),
             context_audit_records=RunnableLambda(
                 lambda data: [
                     item for item in data["state"].get("context_audit_records", []) if isinstance(item, dict)
@@ -194,6 +212,12 @@ class ContextPolicyRuntime:
             "task": str(data.get("task", "")),
             "role": role_name,
             "task_hints": task_hints,
+            "active_skills": [item for item in data.get("active_skills", []) if isinstance(item, dict)],
+            "matched_skills": [item for item in data.get("matched_skills", []) if isinstance(item, dict)],
+            "skills_catalog": [item for item in data.get("skills_catalog", []) if isinstance(item, dict)],
+            "skills_available": bool(data.get("skills_available", False)),
+            "skills_count": int(data.get("skills_count", 0)),
+            "skills_hint": str(data.get("skills_hint", "")),
             "history_summary": self._compress_lines(
                 [f"{entry['task']} => {entry['output_preview']}" for entry in history_entries],
                 max_chars=max_chars // 3,
@@ -228,6 +252,11 @@ class ContextPolicyRuntime:
             "budget_allocations": budget_allocations,
             "context_audit_records": context_audits[-3:],
         }
+        bundle["skills_hint"] = self._skill_summary(
+            skills_catalog=bundle.get("skills_catalog", []),
+            matched_skills=bundle.get("matched_skills", []),
+            role_name=role_name,
+        )
         bundle["role_view"] = self._role_view(role_name, bundle)
         bundle["bundle_preview"] = self.render_bundle(bundle, max_chars=max_chars)
         return bundle
@@ -237,6 +266,7 @@ class ContextPolicyRuntime:
             f"role={bundle.get('role', '')}",
             f"task={bundle.get('task', '')}",
             f"hints={bundle.get('task_hints', {})}",
+            f"skills={bundle.get('skills_hint', '')}",
             f"history={bundle.get('history_summary', '')}",
             f"memory={bundle.get('memory_summary', '')}",
             f"tools={bundle.get('tool_summary', '')}",
@@ -254,6 +284,7 @@ class ContextPolicyRuntime:
             return {
                 "focus": "task-scoping",
                 "history": bundle.get("recent_history", [])[-2:],
+                "skills": self._skill_names(bundle.get("skills_catalog", []), limit=4),
                 "working_memory": bundle.get("layered_memory", {}).get("working_memory", {}),
                 "workspace": bundle.get("workspace_signals", [])[:1],
                 "budget": bundle.get("budget_allocations", {}),
@@ -263,6 +294,7 @@ class ContextPolicyRuntime:
                 "focus": "verification",
                 "tool_results": bundle.get("recent_tool_results", [])[-3:],
                 "tool_facts": bundle.get("tool_facts", [])[-3:],
+                "matched_skills": self._skill_names(bundle.get("matched_skills", []), limit=2),
                 "failure_memory": bundle.get("layered_memory", {}).get("failure_memory", [])[-3:],
                 "history": bundle.get("recent_history", [])[-1:],
                 "budget": bundle.get("budget_allocations", {}),
@@ -271,11 +303,46 @@ class ContextPolicyRuntime:
             "focus": "execution",
             "history": bundle.get("recent_history", [])[-2:],
             "tool_results": bundle.get("recent_tool_results", [])[-2:],
+            "skills": self._skill_names(bundle.get("skills_catalog", []), limit=4),
+            "matched_skills": self._skill_names(bundle.get("matched_skills", []), limit=2),
             "working_memory": bundle.get("layered_memory", {}).get("working_memory", {}),
             "workspace": bundle.get("workspace_signals", [])[:2],
             "workspace_state": bundle.get("layered_memory", {}).get("workspace_state", {}),
             "budget": bundle.get("budget_allocations", {}),
         }
+
+    def _skill_summary(
+        self,
+        skills_catalog: object,
+        matched_skills: object,
+        role_name: str,
+    ) -> str:
+        if not isinstance(skills_catalog, list) or not skills_catalog:
+            return ""
+        lines = [f"skills({role_name})"]
+        available_names = [
+            str(skill.get("name", "")) for skill in skills_catalog[:6] if isinstance(skill, dict)
+        ]
+        if available_names:
+            lines.append("available=" + ", ".join(name for name in available_names if name))
+        if isinstance(matched_skills, list) and matched_skills:
+            matched_names = [
+                str(skill.get("name", "")) for skill in matched_skills[:3] if isinstance(skill, dict)
+            ]
+            if matched_names:
+                lines.append("matched_hint=" + ", ".join(name for name in matched_names if name))
+        for skill in skills_catalog[:3]:
+            if not isinstance(skill, dict):
+                continue
+            line = str(skill.get("name", ""))
+            description = str(skill.get("description", "")).strip()
+            role_hint = str(skill.get("when_to_use", "")).strip()
+            if description:
+                line += f": {description}"
+            if role_hint:
+                line += f" | hint={role_hint}"
+            lines.append(line)
+        return self._compress_lines(lines, max_chars=220)
 
     def _compress_lines(self, lines: list[str], *, max_chars: int) -> str:
         if not lines:
@@ -292,6 +359,18 @@ class ContextPolicyRuntime:
         if len(compact) <= max_chars:
             return compact
         return compact[: max_chars - 3] + "..."
+
+    def _skill_names(self, skills: object, *, limit: int) -> list[str]:
+        if not isinstance(skills, list):
+            return []
+        names: list[str] = []
+        for skill in skills[:limit]:
+            if not isinstance(skill, dict):
+                continue
+            name = str(skill.get("name", "")).strip()
+            if name:
+                names.append(name)
+        return names
 
     def _tool_summary(self, item: dict[str, object]) -> str:
         tool_name = str(item.get("tool_name", "unknown"))

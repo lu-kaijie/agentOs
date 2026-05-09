@@ -524,6 +524,8 @@ def knowledge_list() -> None:
     payload = {
         "knowledge_dir": str(application.settings.knowledge_dir),
         "topics": application.knowledge_loader.list_topics(),
+        "skills_dir": str(application.settings.skills_dir),
+        "skills": application.knowledge_loader.list_skills(),
     }
     _echo_json(payload)
 
@@ -535,6 +537,33 @@ def knowledge_load(topic: str = typer.Argument(..., help="Knowledge topic to loa
     application = AgentOsApp.bootstrap()
     result = application.tool_registry.invoke(
         ToolInvocation(tool_name="knowledge_load", arguments={"topic": topic})
+    )
+    _echo_json(result.to_dict())
+
+
+@app.command("skill-list")
+def skill_list() -> None:
+    """List available user-defined skills."""
+
+    application = AgentOsApp.bootstrap()
+    payload = {
+        "skills_dir": str(application.settings.skills_dir),
+        "skills": application.knowledge_loader.list_skills(),
+    }
+    _echo_json(payload)
+
+
+@app.command("skill-show")
+def skill_show(
+    name: str = typer.Argument(..., help="Skill name."),
+    level: str = typer.Option("summary", "--level", help="summary/full/reference/script"),
+    target: str = typer.Option("", "--target", help="Optional reference/script target."),
+) -> None:
+    """Load one skill through the structured tool registry."""
+
+    application = AgentOsApp.bootstrap()
+    result = application.tool_registry.invoke(
+        ToolInvocation(tool_name="skill_load", arguments={"name": name, "level": level, "target": target})
     )
     _echo_json(result.to_dict())
 

@@ -42,6 +42,16 @@ class KnowledgeLoadArgs(BaseModel):
     topic: str = Field(description="Knowledge topic to load from the knowledge directory.")
 
 
+class SkillListArgs(BaseModel):
+    role: str = Field(default="", description="Optional role hint for compact skill catalog rendering.")
+
+
+class SkillLoadArgs(BaseModel):
+    name: str = Field(description="Skill name to load from the skills directory.")
+    level: str = Field(default="summary", description="One of: summary, full, reference, script.")
+    target: str = Field(default="", description="Optional reference/script target path for deeper disclosure.")
+
+
 class RepoSearchArgs(BaseModel):
     pattern: str = Field(description="Plain-text pattern to search inside the workspace.")
 
@@ -150,6 +160,30 @@ def build_default_tool_registry(
             "content": message.content,
         }
         _emit_tool_record("knowledge_load", "ok", payload)
+        return payload
+
+    def skill_list(role: str = "") -> dict[str, object]:
+        catalog = context.knowledge_loader.skill_catalog(role=role)
+        payload = {
+            "_summary": f"listed {len(catalog)} skill(s)",
+            "role": role,
+            "skills": catalog,
+        }
+        _emit_tool_record("skill_list", "ok", payload)
+        return payload
+
+    def skill_load(name: str, level: str = "summary", target: str = "") -> dict[str, object]:
+        topic = name if level == "summary" and not target else f"{name}#{'ref:' + target if level == 'reference' and target else 'script:' + target if level == 'script' and target else level}"
+        message = context.knowledge_loader.load_skill(topic)
+        payload = {
+            "_summary": f"loaded skill '{name}' level={level}",
+            "name": name,
+            "level": level,
+            "target": target,
+            "content": message.content,
+            "source": message.additional_kwargs.get("source", ""),
+        }
+        _emit_tool_record("skill_load", "ok", payload)
         return payload
 
     def repo_search(pattern: str) -> dict[str, object]:
@@ -271,6 +305,18 @@ def build_default_tool_registry(
             description="Load a knowledge topic from the knowledge directory.",
             func=knowledge_load,
             args_schema=KnowledgeLoadArgs,
+        ),
+        StructuredTool.from_function(
+            name="skill_list",
+            description="List the compact skill catalog with names and one-line usage hints.",
+            func=skill_list,
+            args_schema=SkillListArgs,
+        ),
+        StructuredTool.from_function(
+            name="skill_load",
+            description="Load a skill entry, summary, reference, or full skill content from the skills directory.",
+            func=skill_load,
+            args_schema=SkillLoadArgs,
         ),
         StructuredTool.from_function(
             name="repo_search",
