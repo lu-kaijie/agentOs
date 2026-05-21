@@ -129,6 +129,7 @@ class AgentShellApp(App[None]):
                     command,
                     session_id=self.session_id,
                     approve=self.approve,
+                    max_iterations=self.max_iterations,
                 )
             else:
                 last_trace_len = -1

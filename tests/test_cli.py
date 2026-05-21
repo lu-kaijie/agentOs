@@ -306,6 +306,112 @@ def test_run_command_supports_model_backed_path(monkeypatch):
     assert "model executor output" in result.stdout
 
 
+def test_model_backed_path_loops_until_reviewer_clears_follow_up(monkeypatch):
+    from agentos.runtime.model_backed import ModelBackedAgentRuntime
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
+    calls = {"count": 0}
+
+    def fake_run_turn(self, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "planner_summary": "plan once",
+                "planner_steps": ["inspect"],
+                "executor_output": "executor output once",
+                "reviewer_summary": "needs follow up",
+                "reviewer_follow_up_needed": True,
+                "tool_results": [{"tool_name": "file_read", "summary": "read once", "payload": {}}],
+                "message_count": 2,
+            }
+        return {
+            "planner_summary": "plan twice",
+            "planner_steps": ["verify"],
+            "executor_output": "executor output twice",
+            "reviewer_summary": "looks good now",
+            "reviewer_follow_up_needed": False,
+            "tool_results": [{"tool_name": "test_run", "summary": "verified", "payload": {}}],
+            "message_count": 4,
+        }
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "run_turn", fake_run_turn)
+
+    result = runner.invoke(
+        app,
+        ["run", "inspect README and summarize", "--model", "--session-id", "model-loop", "--max-iterations", "3"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["count"] == 2
+    assert '"iteration_count": 2' in result.stdout
+    assert '"loop_status": "completed"' in result.stdout
+    assert '"reviewer_follow_up": "true"' not in result.stdout
+    assert "executor output twice" in result.stdout
+
+
+def test_model_backed_path_stops_at_max_iterations(monkeypatch):
+    from agentos.runtime.model_backed import ModelBackedAgentRuntime
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
+    calls = {"count": 0}
+
+    def fake_run_turn(self, **kwargs):
+        calls["count"] += 1
+        return {
+            "planner_summary": f"plan {calls['count']}",
+            "planner_steps": ["inspect"],
+            "executor_output": f"executor output {calls['count']}",
+            "reviewer_summary": "still needs work",
+            "reviewer_follow_up_needed": True,
+            "tool_results": [],
+            "message_count": calls["count"] * 2,
+        }
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "run_turn", fake_run_turn)
+
+    result = runner.invoke(
+        app,
+        ["run", "inspect README and summarize", "--model", "--session-id", "model-loop-stop", "--max-iterations", "2"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["count"] == 2
+    assert '"iteration_count": 2' in result.stdout
+    assert '"loop_status": "stopped:max_iterations"' in result.stdout
+    assert '"pending_tasks": [' in result.stdout
+
+
+def test_model_backed_path_stops_when_reviewer_requests_follow_up_without_progress(monkeypatch):
+    from agentos.runtime.model_backed import ModelBackedAgentRuntime
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
+    calls = {"count": 0}
+
+    def fake_run_turn(self, **kwargs):
+        calls["count"] += 1
+        return {
+            "planner_summary": "same plan",
+            "planner_steps": ["inspect"],
+            "executor_output": "same executor output",
+            "reviewer_summary": "still needs follow up",
+            "reviewer_follow_up_needed": True,
+            "tool_results": [],
+            "message_count": calls["count"] * 2,
+        }
+
+    monkeypatch.setattr(ModelBackedAgentRuntime, "run_turn", fake_run_turn)
+
+    result = runner.invoke(
+        app,
+        ["run", "inspect README and summarize", "--model", "--session-id", "model-loop-no-progress", "--max-iterations", "5"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["count"] == 2
+    assert '"loop_status": "stopped:no_progress"' in result.stdout
+    assert '"iteration_count": 2' in result.stdout
+
+
 def test_shell_uses_model_backed_mode_for_natural_language(monkeypatch):
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 

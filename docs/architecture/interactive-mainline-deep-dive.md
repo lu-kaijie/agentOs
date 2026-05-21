@@ -142,7 +142,7 @@ plain shell 的核心循环在 `_run_plain_shell()`：
 
 这层的作用不是做业务，而是把“一个 shell 产品需要的上下文、工具、session、模型、fallback”全部接成一套可用系统。
 
-## 5. 真实模型主路径：planner -> executor -> reviewer
+## 5. 真实模型主路径：带外层循环的 planner -> executor -> reviewer
 
 真实模型主链路的总入口是 `AgentOsApp.run_model_session_task()`。
 
@@ -157,18 +157,19 @@ plain shell 的核心循环在 `_run_plain_shell()`：
 
 ### 5.2 这条路径的整体步骤
 
-`run_model_session_task()` 里按顺序做了这些事情：
+`run_model_session_task()` 现在不是单次固定三段式回合，而是一个 bounded outer loop。每一轮都按顺序做这些事情：
 
 1. 从 `SessionManager.load_latest_turn()` 读取上一次 turn 的 `state`。
-2. 分别为 `planner`、`executor`、`reviewer` 调用 `ContextManager.prepare_role_context(...)`。
-3. 把三个 role 的 bundle 一起交给 `ModelBackedAgentRuntime.run_turn(...)`。
-4. 收集 planner / executor / reviewer 三段结果。
-5. 组装一份 inspectable `state`。
-6. 调用 `SessionManager.record_turn(...)` 把整轮结果写到 `.agentos/sessions/<session>/turn_xxxx.json`。
+2. 初始化本轮 outer-loop `state`，包括 `tool_results`、`memory_state`、`context_*_records`、`role_*`、`execution_trace`、`iteration_count` 和 `loop_status`。
+3. 分别为 `planner`、`executor`、`reviewer` 调用 `ContextManager.prepare_role_context(...)`。
+4. 把三个 role 的 bundle 一起交给 `ModelBackedAgentRuntime.run_turn(...)`。
+5. 收集 planner / executor / reviewer 三段结果，并把新增工具结果、handoff、audit 和 trace 合并回 `state`。
+6. 根据 reviewer 结论和本轮进展决定是否继续下一轮。
+7. loop 结束后调用 `SessionManager.record_turn(...)` 把整轮结果写到 `.agentos/sessions/<session>/turn_xxxx.json`。
 
 这里要注意两个关键设计：
 
-1. 每个 role 拿到的是不同视图的 context bundle。
+1. 每个 role 拿到的是不同视图的 context bundle，而且这些 bundle 是每一轮重新准备的。
 2. 最终 state 是结构化的，里面不仅有 `final_output`，还有：
    - `tool_results`
    - `role_records`
@@ -177,10 +178,25 @@ plain shell 的核心循环在 `_run_plain_shell()`：
    - `context_audit_records`
    - `memory_state`
    - `execution_trace`
+   - `iteration_count`
+   - `loop_status`
 
 也就是说，这个系统不是只关心“最后说了什么”，而是把“怎么做的”也当成一等产物保留下来。
 
-### 5.3 `ModelBackedAgentRuntime.run_turn()` 的具体执行过程
+### 5.3 模型路径外层循环的结束条件
+
+当前 outer loop 有三种终态：
+
+1. `completed`
+   reviewer 不再要求 follow-up。
+2. `stopped:max_iterations`
+   reviewer 仍要求继续，但已经达到 `--max-iterations` 上限。
+3. `stopped:no_progress`
+   reviewer 仍要求继续，但新一轮没有新增工具结果，且 planner steps、executor output、reviewer summary 都没有变化。
+
+第三种终态是专门为了防止“reviewer 一直说继续，但系统其实没有带来新信息”时空转。
+
+### 5.4 `ModelBackedAgentRuntime.run_turn()` 的具体执行过程
 
 核心实现位于 `src/agentos/runtime/model_backed.py`。
 
@@ -308,7 +324,7 @@ reviewer 的输入包括：
 
 这一步很关键，它意味着下一轮看到的是“用户问了什么、agent 最终回答了什么、reviewer 如何收尾”，而不是完整工具协议流。
 
-### 5.4 真实模型路径的错误处理策略
+### 5.5 真实模型路径的错误处理策略
 
 `ModelBackedRuntimeError` 用来携带阶段级别的调试信息。
 

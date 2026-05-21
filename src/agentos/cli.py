@@ -156,6 +156,7 @@ def _run_plain_shell(
                     command,
                     session_id=session_id,
                     approve=approve,
+                    max_iterations=max_iterations,
                 )
             except Exception as exc:
                 typer.echo(_render_model_runtime_error(exc))
@@ -305,6 +306,7 @@ def run(
                 task,
                 session_id=session_id,
                 approve=approve,
+                max_iterations=max_iterations,
             )
         else:
             state = application.run_session_task(
