@@ -12,6 +12,7 @@ This change makes the fallback LangGraph runtime become the shared agent-loop fo
 - Ensure each model-backed iteration follows the existing sequence: `prepare_context` -> model decision -> approval/tool/respond -> `finalize_iteration`.
 - Keep `ContextManager.prepare_role_context()` as the required context boundary immediately before every model decision.
 - Preserve all existing harness-related capabilities in the model-backed graph path, including command execution boundaries, approval policy evaluation, workspace resolution, background job re-entry, task state, and delegated work-unit coordination.
+- Add stateful interactive approval support so dangerous model-selected commands can pause the graph, wait for user approval or rejection, and resume from the pending decision.
 - Preserve current CLI behavior at the user level: `agentos run --model` and model-enabled shell still use real models, while non-model and explicit DSL flows remain deterministic.
 - Keep the existing `ModelBackedAgentRuntime` available during transition until the graph-native model path reaches parity.
 

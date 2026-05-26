@@ -60,6 +60,29 @@ The system SHALL route model-backed command and test execution through the exist
 - **THEN** test execution uses the existing `test_run` tool and harness executor
 - **AND** timeout, exit code, stdout, stderr, and command metadata remain inspectable
 
+### Requirement: Dangerous model-selected commands must support resumable interactive approval
+The system SHALL pause graph-native model execution for dangerous commands that require user approval and SHALL support resuming from the pending approval decision.
+
+#### Scenario: Dangerous command waits for approval
+- **WHEN** a model-backed decision selects a command that the approval policy marks as requiring approval
+- **AND** no approval has been granted for that decision
+- **THEN** the graph records a pending approval request with the active task, command, structured decision, and policy metadata
+- **AND** the graph sets the loop status to waiting for approval
+- **AND** the command is not executed
+
+#### Scenario: User approves pending command
+- **WHEN** a pending approval request exists
+- **AND** the user approves that exact request
+- **THEN** the graph resumes from the pending structured decision
+- **AND** the approved command executes through the existing harness tool path
+- **AND** the approval outcome and command result are persisted in the session state
+
+#### Scenario: User rejects pending command
+- **WHEN** a pending approval request exists
+- **AND** the user rejects that request
+- **THEN** the graph records the rejection without executing the command
+- **AND** the session state remains inspectable so a later model decision can stop or choose another path
+
 ### Requirement: Model-backed execution must preserve background re-entry
 The system SHALL preserve existing background job re-entry behavior in model-backed graph execution.
 
