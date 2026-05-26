@@ -11,19 +11,21 @@ This change makes the fallback LangGraph runtime become the shared agent-loop fo
 - Move model-backed tool use from an internal executor ReAct loop to graph-level one-decision-per-iteration execution.
 - Ensure each model-backed iteration follows the existing sequence: `prepare_context` -> model decision -> approval/tool/respond -> `finalize_iteration`.
 - Keep `ContextManager.prepare_role_context()` as the required context boundary immediately before every model decision.
+- Preserve all existing harness-related capabilities in the model-backed graph path, including command execution boundaries, approval policy evaluation, workspace resolution, background job re-entry, task state, and delegated work-unit coordination.
 - Preserve current CLI behavior at the user level: `agentos run --model` and model-enabled shell still use real models, while non-model and explicit DSL flows remain deterministic.
 - Keep the existing `ModelBackedAgentRuntime` available during transition until the graph-native model path reaches parity.
 
 ## Capabilities
 
 ### New Capabilities
-- `graph-native-model-agent-loop`: Defines a unified LangGraph agent loop where real model decisions and deterministic fallback decisions share the same orchestration, context lifecycle, tool execution, and session persistence path.
+- `graph-native-model-agent-loop`: Defines a unified LangGraph agent loop where real model decisions and deterministic fallback decisions share the same orchestration, context lifecycle, harness execution boundary, tool execution, background/workspace behavior, and session persistence path.
 
 ### Modified Capabilities
 
 ## Impact
 
 - Affects `src/agentos/app.py`, `src/agentos/cli.py`, `src/agentos/runtime/app.py`, and model-backed runtime integration.
+- Affects harness-adjacent integrations in `src/agentos/harness/`, `src/agentos/execution_control/`, `src/agentos/coordination/`, `src/agentos/tasks/`, `src/agentos/policy/`, and `src/agentos/tools/`.
 - Affects tests for model mode, fallback runtime, context lifecycle, tool execution, approval behavior, and shell routing.
 - May add a small model decision strategy or helper module to keep `runtime/app.py` from becoming too large.
 - Does not require new external dependencies.

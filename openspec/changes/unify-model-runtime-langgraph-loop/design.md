@@ -7,6 +7,8 @@
 
 This creates a mismatch: the fallback path has stronger graph-level orchestration, while the real model path has stronger reasoning but hides the executor's multi-step tool loop inside `create_react_agent()`. Context management is applied before entering the ReAct executor, not before every model decision inside that executor.
 
+The fallback graph also owns most harness-adjacent behavior today: `ToolRegistry` invokes tools through the `CommandExecutor` boundary, command execution passes through `CommandApprovalPolicy`, background jobs can re-enter the loop, workspaces can be resolved for execution, and delegated work units/tasks are persisted through their managers. The unified model path must not regress those capabilities.
+
 The desired architecture is a graph-native model path: the LangGraph runtime remains the owner of the agent loop, and the model is used as a decision strategy inside the graph.
 
 ## Goals / Non-Goals
@@ -17,6 +19,7 @@ The desired architecture is a graph-native model path: the LangGraph runtime rem
 - Keep `prepare_context` as the required context-management step before each real model decision.
 - Make each model-backed graph iteration produce at most one `RuntimeDecision`.
 - Reuse existing `tool_execute`, `approval_gate`, `background_reentry`, `finalize_iteration`, session persistence, and context audit behavior.
+- Reuse existing harness capabilities, including local command execution through `CommandExecutor`, approval policy evaluation, workspace resolution, background jobs, task state, and delegated work-unit coordination.
 - Preserve deterministic fallback behavior for non-model mode, test environments, and explicit legacy DSL tasks.
 - Keep the first implementation narrow enough that current tests and CLI behavior can migrate without a broad product rewrite.
 
@@ -88,11 +91,27 @@ This keeps the invariant clear:
 
 The internal API can add a mode flag or state field such as `execution_mode: "deterministic" | "model"` to `RuntimeBootstrap.run_task()`.
 
+### 6. Treat harness behavior as part of the graph contract
+
+The graph-native model path must preserve the same harness contract as deterministic execution:
+
+- command actions are represented as `RuntimeDecision(action="run_command")`
+- command execution still flows through `approval_gate` and `ToolRegistry.invoke("shell_command")`
+- `shell_command` and `test_run` still execute through `CommandExecutor`
+- background results are consumed by `initialize_loop` and handled by `background_reentry`
+- workspace-aware execution remains available through existing workspace and coordination managers
+- delegated work-unit execution remains a CLI/manager capability and must not be bypassed by model mode
+
+This means the model should select actions, but the graph and harness still enforce execution boundaries.
+
+Alternative considered: let the model executor directly run commands or background work inside a ReAct tool loop. That would bypass the existing harness surfaces and make approval, workspace, and task state harder to audit consistently.
+
 ## Risks / Trade-offs
 
 - Model output may fail to parse as `RuntimeDecision` -> Mitigation: use the existing `PydanticOutputParser`, include format instructions, and fall back to a clear runtime error with debug lines.
 - One-tool-per-iteration can be slower than ReAct's internal loop -> Mitigation: this is an intentional trade-off to gain context control, auditability, and approval consistency.
 - Existing model-backed tests may depend on planner/executor/reviewer records -> Mitigation: preserve role records where useful, but define new graph-native observability around model decisions and tool results.
+- Model mode may accidentally bypass harness managers if implemented as direct model tools -> Mitigation: require all model-selected actions to route through graph decisions and existing `tool_execute`/manager paths.
 - `runtime/app.py` may become too large -> Mitigation: extract model decision strategy helpers into a small module if implementation grows.
 - Shell behavior may become surprising for explicit DSL tasks in model-enabled sessions -> Mitigation: keep legacy prefix detection and deterministic routing for those tasks.
 
@@ -101,9 +120,10 @@ The internal API can add a mode flag or state field such as `execution_mode: "de
 1. Add graph execution mode state while preserving the deterministic default.
 2. Add a model decision strategy that produces `RuntimeDecision` from `state["context_bundle"]`.
 3. Route `agentos run --model` and model-enabled natural-language shell input into `RuntimeBootstrap.run_task(..., execution_mode="model")`.
-4. Keep old `ModelBackedAgentRuntime` available until graph-native model behavior is covered by tests.
-5. Update tests to verify that model mode goes through `prepare_context`, `tool_execute`, and `finalize_iteration`.
-6. After parity is proven in a later change, remove or simplify the old hand-written model path.
+4. Verify graph-native model decisions route through the existing harness boundary for shell commands, tests, approval, background re-entry, workspaces, and coordination/task managers.
+5. Keep old `ModelBackedAgentRuntime` available until graph-native model behavior is covered by tests.
+6. Update tests to verify that model mode goes through `prepare_context`, `tool_execute`, and `finalize_iteration`.
+7. After parity is proven in a later change, remove or simplify the old hand-written model path.
 
 ## Open Questions
 
