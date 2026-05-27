@@ -71,7 +71,7 @@ class ContextPolicyRuntime:
         task: str,
         state: dict[str, object],
         workspace_dir: Path,
-        max_chars: int = 600,
+        max_chars: int = 8000,
     ) -> tuple[dict[str, object], ContextPolicyRecord]:
         payload = self._pipeline.invoke(
             {
@@ -192,6 +192,11 @@ class ContextPolicyRuntime:
         recent_messages = [
             item for item in memory_state.get("recent_messages", []) if isinstance(item, dict)
         ]
+        user_profile = dict(memory_state.get("user_profile", {}))
+        remembered_facts = [
+            item for item in memory_state.get("remembered_facts", []) if isinstance(item, dict)
+        ]
+        task_state = dict(memory_state.get("task_state", {}))
         working_memory = dict(memory_state.get("working_memory", {}))
         user_preferences = dict(memory_state.get("user_preferences", {}))
         tool_facts = [
@@ -222,17 +227,23 @@ class ContextPolicyRuntime:
                 [f"{entry['task']} => {entry['output_preview']}" for entry in history_entries],
                 max_chars=max_chars // 3,
             ),
-            "recent_history": history_entries[-3:],
+            "recent_history": history_entries[-10:],
             "tool_summary": self._compress_lines(
                 [self._tool_summary(item) for item in tool_results],
                 max_chars=max_chars // 3,
             ),
-            "recent_tool_results": tool_results[-3:],
-            "tool_facts": tool_facts[-3:],
+            "recent_tool_results": tool_results[-10:],
+            "user_profile": user_profile,
+            "remembered_facts": remembered_facts[-50:],
+            "task_state": task_state,
+            "tool_facts": tool_facts[-10:],
             "trace_summary": self._compress_lines(execution_trace, max_chars=max_chars // 4),
             "workspace_signals": workspace_signals,
             "sources": self._bundle_sources(history_entries, tool_results, workspace_signals, memory_state),
             "memory_summary": self._memory_summary(
+                user_profile=user_profile,
+                remembered_facts=remembered_facts,
+                task_state=task_state,
                 working_memory=working_memory,
                 user_preferences=user_preferences,
                 tool_facts=tool_facts,
@@ -241,12 +252,15 @@ class ContextPolicyRuntime:
                 max_chars=max_chars // 2,
             ),
             "layered_memory": {
-                "recent_messages": recent_messages[-4:],
+                "recent_messages": recent_messages[-12:],
+                "user_profile": user_profile,
+                "remembered_facts": remembered_facts[-50:],
+                "task_state": task_state,
                 "working_memory": working_memory,
                 "user_preferences": user_preferences,
-                "tool_facts": tool_facts[-3:],
+                "tool_facts": tool_facts[-10:],
                 "workspace_state": workspace_memory,
-                "failure_memory": failure_memory[-3:],
+                "failure_memory": failure_memory[-8:],
                 "session_summary": session_summary,
             },
             "budget_allocations": budget_allocations,
@@ -261,7 +275,7 @@ class ContextPolicyRuntime:
         bundle["bundle_preview"] = self.render_bundle(bundle, max_chars=max_chars)
         return bundle
 
-    def render_bundle(self, bundle: dict[str, object], *, max_chars: int = 600) -> str:
+    def render_bundle(self, bundle: dict[str, object], *, max_chars: int = 8000) -> str:
         lines = [
             f"role={bundle.get('role', '')}",
             f"task={bundle.get('task', '')}",
@@ -286,6 +300,9 @@ class ContextPolicyRuntime:
                 "history": bundle.get("recent_history", [])[-2:],
                 "skills": self._skill_names(bundle.get("skills_catalog", []), limit=4),
                 "working_memory": bundle.get("layered_memory", {}).get("working_memory", {}),
+                "user_profile": bundle.get("user_profile", {}),
+                "remembered_facts": bundle.get("remembered_facts", [])[-8:],
+                "task_state": bundle.get("task_state", {}),
                 "workspace": bundle.get("workspace_signals", [])[:1],
                 "budget": bundle.get("budget_allocations", {}),
             }
@@ -296,6 +313,8 @@ class ContextPolicyRuntime:
                 "tool_facts": bundle.get("tool_facts", [])[-3:],
                 "matched_skills": self._skill_names(bundle.get("matched_skills", []), limit=2),
                 "failure_memory": bundle.get("layered_memory", {}).get("failure_memory", [])[-3:],
+                "remembered_facts": bundle.get("remembered_facts", [])[-6:],
+                "task_state": bundle.get("task_state", {}),
                 "history": bundle.get("recent_history", [])[-1:],
                 "budget": bundle.get("budget_allocations", {}),
             }
@@ -306,6 +325,9 @@ class ContextPolicyRuntime:
             "skills": self._skill_names(bundle.get("skills_catalog", []), limit=4),
             "matched_skills": self._skill_names(bundle.get("matched_skills", []), limit=2),
             "working_memory": bundle.get("layered_memory", {}).get("working_memory", {}),
+            "user_profile": bundle.get("user_profile", {}),
+            "remembered_facts": bundle.get("remembered_facts", [])[-8:],
+            "task_state": bundle.get("task_state", {}),
             "workspace": bundle.get("workspace_signals", [])[:2],
             "workspace_state": bundle.get("layered_memory", {}).get("workspace_state", {}),
             "budget": bundle.get("budget_allocations", {}),
@@ -398,6 +420,9 @@ class ContextPolicyRuntime:
     def _memory_summary(
         self,
         *,
+        user_profile: dict[str, object],
+        remembered_facts: list[dict[str, object]],
+        task_state: dict[str, object],
         working_memory: dict[str, object],
         user_preferences: dict[str, object],
         tool_facts: list[dict[str, object]],
@@ -406,6 +431,20 @@ class ContextPolicyRuntime:
         max_chars: int,
     ) -> str:
         lines = [session_summary]
+        if task_state.get("current_goal"):
+            lines.append(f"task_goal={task_state.get('current_goal')}")
+        if user_profile.get("preferred_language"):
+            lines.append(f"profile_language={user_profile.get('preferred_language')}")
+        response_style = [str(item) for item in user_profile.get("response_style", [])]
+        if response_style:
+            lines.append("response_style=" + ", ".join(response_style[:3]))
+        active_facts = [
+            f"{item.get('key')}={item.get('value')}"
+            for item in remembered_facts
+            if item.get("status", "active") == "active" and item.get("key") and item.get("value")
+        ]
+        if active_facts:
+            lines.append("remembered_facts=" + ", ".join(active_facts[-6:]))
         if working_memory.get("current_goal"):
             lines.append(f"goal={working_memory.get('current_goal')}")
         constraints = [str(item) for item in working_memory.get("accepted_constraints", [])]
@@ -421,10 +460,10 @@ class ContextPolicyRuntime:
 
     def _budget_allocations(self, role_name: str) -> dict[str, int]:
         if role_name == "planner":
-            return {"working_memory": 260, "user_preferences": 80, "recent_messages": 120, "workspace_state": 100}
+            return {"working_memory": 1200, "user_preferences": 400, "recent_messages": 2400, "workspace_state": 600}
         if role_name == "reviewer":
-            return {"working_memory": 180, "tool_facts": 220, "failure_memory": 120, "recent_messages": 80}
-        return {"working_memory": 180, "tool_facts": 180, "workspace_state": 160, "recent_messages": 80}
+            return {"working_memory": 1000, "tool_facts": 1600, "failure_memory": 600, "recent_messages": 1600}
+        return {"working_memory": 1200, "tool_facts": 1600, "workspace_state": 1000, "recent_messages": 2400}
 
     def _workspace_preview(self, signals: object) -> str:
         if not isinstance(signals, list):

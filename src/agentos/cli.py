@@ -57,6 +57,10 @@ def _state_snapshot(state: dict[str, object]) -> list[str]:
     ]
     if state.get("active_task"):
         lines.append(f"active_task: {state['active_task']}")
+    if state.get("pending_approval"):
+        pending = state.get("pending_approval", {})
+        command = pending.get("command", []) if isinstance(pending, dict) else []
+        lines.append(f"pending_approval: {' '.join(str(item) for item in command) or 'yes'}")
     if state.get("final_output"):
         preview = str(state["final_output"]).strip().replace("\n", " ")
         lines.append(f"final_output: {preview[:120]}")
@@ -147,12 +151,38 @@ def _run_plain_shell(
             except FileNotFoundError:
                 typer.echo("当前 shell session 还没有任何 turn 记录。")
             continue
+        if command == "/approve":
+            try:
+                latest_state = application.approve_pending_approval(
+                    session_id,
+                    max_iterations=max_iterations,
+                )
+            except Exception as exc:
+                typer.echo(_render_model_runtime_error(exc))
+                continue
+            typer.echo(_shell_status_line(latest_state))
+            typer.echo("assistant>")
+            typer.echo(str(latest_state.get("final_output", "")).rstrip())
+            continue
+        if command == "/reject":
+            try:
+                latest_state = application.reject_pending_approval(
+                    session_id,
+                    max_iterations=max_iterations,
+                )
+            except Exception as exc:
+                typer.echo(_render_model_runtime_error(exc))
+                continue
+            typer.echo(_shell_status_line(latest_state))
+            typer.echo("assistant>")
+            typer.echo(str(latest_state.get("final_output", "")).rstrip())
+            continue
 
         latest_state: dict[str, object] | None = None
         if application.model_runtime.is_configured() and not _looks_like_legacy_task(command):
             typer.echo("[mode] model-backed")
             try:
-                latest_state = application.run_model_session_task(
+                latest_state = application.run_graph_model_session_task(
                     command,
                     session_id=session_id,
                     approve=approve,
@@ -302,7 +332,7 @@ def run(
             if not application.model_runtime.is_configured():
                 _print_model_guidance(application)
                 raise typer.Exit(code=1)
-            state = application.run_model_session_task(
+            state = application.run_graph_model_session_task(
                 task,
                 session_id=session_id,
                 approve=approve,
@@ -321,6 +351,34 @@ def run(
             _print_model_guidance(application)
         raise typer.Exit(code=1) from exc
     _echo_state_report("agentOs LangGraph runtime executed.", state)
+
+
+@app.command("approval-approve")
+def approval_approve(
+    session_id: str = typer.Argument(..., help="Session id with a pending approval."),
+    max_iterations: int = typer.Option(5, "--max-iterations", min=1, help="Bounded runtime loop limit."),
+) -> None:
+    """Approve a pending command and resume the session."""
+
+    state = AgentOsApp.bootstrap().approve_pending_approval(
+        session_id,
+        max_iterations=max_iterations,
+    )
+    _echo_state_report("agentOs approved pending command.", state)
+
+
+@app.command("approval-reject")
+def approval_reject(
+    session_id: str = typer.Argument(..., help="Session id with a pending approval."),
+    max_iterations: int = typer.Option(5, "--max-iterations", min=1, help="Bounded runtime loop limit."),
+) -> None:
+    """Reject a pending command and resume the session."""
+
+    state = AgentOsApp.bootstrap().reject_pending_approval(
+        session_id,
+        max_iterations=max_iterations,
+    )
+    _echo_state_report("agentOs rejected pending command.", state)
 
 
 @app.command("exec")

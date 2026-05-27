@@ -6,6 +6,110 @@ from dataclasses import asdict, dataclass, field
 
 
 @dataclass(slots=True)
+class UserProfile:
+    preferred_language: str = ""
+    response_style: list[str] = field(default_factory=list)
+    stable_preferences: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "UserProfile":
+        return cls(
+            preferred_language=str(payload.get("preferred_language", "")),
+            response_style=[str(item) for item in payload.get("response_style", [])],
+            stable_preferences=[str(item) for item in payload.get("stable_preferences", [])],
+        )
+
+
+@dataclass(slots=True)
+class RememberedFact:
+    key: str
+    value: str
+    scope: str = "session"
+    source: str = "user_explicit"
+    confidence: float = 1.0
+    status: str = "active"
+    created_at: str = ""
+    updated_at: str = ""
+    source_text: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "RememberedFact":
+        return cls(
+            key=str(payload.get("key", "")),
+            value=str(payload.get("value", "")),
+            scope=str(payload.get("scope", "session")),
+            source=str(payload.get("source", "user_explicit")),
+            confidence=float(payload.get("confidence", 1.0)),
+            status=str(payload.get("status", "active")),
+            created_at=str(payload.get("created_at", "")),
+            updated_at=str(payload.get("updated_at", "")),
+            source_text=str(payload.get("source_text", "")),
+        )
+
+
+@dataclass(slots=True)
+class TaskState:
+    current_goal: str = ""
+    completed_actions: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    active_plan: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "TaskState":
+        return cls(
+            current_goal=str(payload.get("current_goal", "")),
+            completed_actions=[str(item) for item in payload.get("completed_actions", [])],
+            open_questions=[str(item) for item in payload.get("open_questions", [])],
+            active_plan=[str(item) for item in payload.get("active_plan", [])],
+        )
+
+
+@dataclass(slots=True)
+class MemoryDelta:
+    user_profile_delta: UserProfile = field(default_factory=UserProfile)
+    remembered_facts_delta: list[RememberedFact] = field(default_factory=list)
+    task_state_delta: TaskState = field(default_factory=TaskState)
+    failure_memory_delta: list["FailureFact"] = field(default_factory=list)
+    diagnostics: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "user_profile_delta": self.user_profile_delta.to_dict(),
+            "remembered_facts_delta": [item.to_dict() for item in self.remembered_facts_delta],
+            "task_state_delta": self.task_state_delta.to_dict(),
+            "failure_memory_delta": [item.to_dict() for item in self.failure_memory_delta],
+            "diagnostics": list(self.diagnostics),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "MemoryDelta":
+        return cls(
+            user_profile_delta=UserProfile.from_dict(dict(payload.get("user_profile_delta", {}))),
+            remembered_facts_delta=[
+                RememberedFact.from_dict(item)
+                for item in payload.get("remembered_facts_delta", [])
+                if isinstance(item, dict)
+            ],
+            task_state_delta=TaskState.from_dict(dict(payload.get("task_state_delta", {}))),
+            failure_memory_delta=[
+                FailureFact.from_dict(item)
+                for item in payload.get("failure_memory_delta", [])
+                if isinstance(item, dict)
+            ],
+            diagnostics=[str(item) for item in payload.get("diagnostics", [])],
+        )
+
+
+@dataclass(slots=True)
 class WorkingMemory:
     current_goal: str = ""
     accepted_constraints: list[str] = field(default_factory=list)
@@ -145,6 +249,9 @@ class LifecycleAuditRecord:
 @dataclass(slots=True)
 class LayeredMemory:
     recent_messages: list[dict[str, object]] = field(default_factory=list)
+    user_profile: UserProfile = field(default_factory=UserProfile)
+    remembered_facts: list[RememberedFact] = field(default_factory=list)
+    task_state: TaskState = field(default_factory=TaskState)
     working_memory: WorkingMemory = field(default_factory=WorkingMemory)
     user_preferences: UserPreferences = field(default_factory=UserPreferences)
     tool_facts: list[ToolFact] = field(default_factory=list)
@@ -156,6 +263,9 @@ class LayeredMemory:
     def to_dict(self) -> dict[str, object]:
         return {
             "recent_messages": self.recent_messages,
+            "user_profile": self.user_profile.to_dict(),
+            "remembered_facts": [item.to_dict() for item in self.remembered_facts],
+            "task_state": self.task_state.to_dict(),
             "working_memory": self.working_memory.to_dict(),
             "user_preferences": self.user_preferences.to_dict(),
             "tool_facts": [item.to_dict() for item in self.tool_facts],
@@ -171,6 +281,17 @@ class LayeredMemory:
             recent_messages=[
                 item for item in payload.get("recent_messages", []) if isinstance(item, dict)
             ],
+            user_profile=UserProfile.from_dict(
+                dict(payload.get("user_profile", {}))
+            ),
+            remembered_facts=[
+                RememberedFact.from_dict(item)
+                for item in payload.get("remembered_facts", [])
+                if isinstance(item, dict)
+            ],
+            task_state=TaskState.from_dict(
+                dict(payload.get("task_state", {}))
+            ),
             working_memory=WorkingMemory.from_dict(
                 dict(payload.get("working_memory", {}))
             ),

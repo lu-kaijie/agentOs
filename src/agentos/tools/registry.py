@@ -100,14 +100,38 @@ class ToolRegistry:
         approved = bool(arguments.pop("_approved", False))
         existing = _TOOL_RUNTIME_OPTIONS.get({})
         collector = existing.get("collector")
-        tool = self.get_tool(invocation.tool_name)
-        with tool_runtime_context(approved=approved, collector=collector):
-            payload = tool.invoke(arguments)
+        try:
+            tool = self.get_tool(invocation.tool_name)
+            with tool_runtime_context(approved=approved, collector=collector):
+                payload = tool.invoke(arguments)
+        except Exception as exc:
+            return self._error_result(invocation.tool_name, exc, collector)
         if not isinstance(payload, dict):
             payload = {"content": payload}
         status = str(payload.pop("_status", "ok"))
         summary = str(payload.pop("_summary", f"{tool.name} completed"))
         return ToolResult(tool_name=tool.name, status=status, summary=summary, payload=payload)
+
+    def _error_result(
+        self,
+        tool_name: str,
+        exc: Exception,
+        collector: object,
+    ) -> ToolResult:
+        summary = f"{tool_name} failed: {exc}"
+        payload = {
+            "error": str(exc),
+            "exception_type": exc.__class__.__name__,
+        }
+        result = ToolResult(
+            tool_name=tool_name,
+            status="error",
+            summary=summary,
+            payload=payload,
+        )
+        if isinstance(collector, list):
+            collector.append(result.to_dict())
+        return result
 
 
 def build_default_tool_registry(
@@ -220,6 +244,24 @@ def build_default_tool_registry(
 
     def file_read(path: str) -> dict[str, object]:
         resolved = _resolve_workspace_path(context.workspace_dir, path)
+        if not resolved.exists():
+            payload = {
+                "_status": "error",
+                "_summary": f"file not found '{path}'",
+                "path": str(resolved),
+                "error": f"File not found: {path}",
+            }
+            _emit_tool_record("file_read", "error", payload)
+            return payload
+        if not resolved.is_file():
+            payload = {
+                "_status": "error",
+                "_summary": f"not a file '{path}'",
+                "path": str(resolved),
+                "error": f"Path is not a file: {path}",
+            }
+            _emit_tool_record("file_read", "error", payload)
+            return payload
         payload = {
             "_summary": f"read '{resolved.name}'",
             "path": str(resolved),

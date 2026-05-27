@@ -54,12 +54,13 @@ def test_run_model_without_configuration_prints_guidance(monkeypatch):
 
 
 def test_run_model_handles_provider_errors_without_traceback(monkeypatch):
+    from agentos.runtime.app import GraphModelDecisionStrategy
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
     monkeypatch.setattr(
-        ModelBackedAgentRuntime,
-        "run_turn",
+        GraphModelDecisionStrategy,
+        "decide",
         lambda self, **kwargs: (_ for _ in ()).throw(ValueError("tool calling unavailable")),
     )
 
@@ -76,7 +77,7 @@ def test_shell_model_runtime_error_does_not_print_missing_config_guidance(monkey
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
     monkeypatch.setattr(
         AgentOsApp,
-        "run_model_session_task",
+        "run_graph_model_session_task",
         lambda self, *args, **kwargs: (_ for _ in ()).throw(ValueError("provider rejected oversized tool output")),
     )
 

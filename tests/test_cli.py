@@ -282,59 +282,38 @@ def test_runtime_role_based_flow(tmp_path, monkeypatch):
 
 
 def test_run_command_supports_model_backed_path(monkeypatch):
+    from agentos.runtime.app import GraphModelDecisionStrategy, RuntimeDecision
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
     monkeypatch.setattr(
-        ModelBackedAgentRuntime,
-        "run_turn",
-        lambda self, **kwargs: {
-            "planner_summary": "plan",
-            "planner_steps": ["read code", "run tests"],
-            "executor_output": "model executor output",
-            "reviewer_summary": "model reviewer summary",
-            "reviewer_follow_up_needed": False,
-            "tool_results": [{"tool_name": "file_read", "summary": "read", "payload": {}}],
-            "message_count": 2,
-        },
+        GraphModelDecisionStrategy,
+        "decide",
+        lambda self, **kwargs: RuntimeDecision(action="respond", response="model executor output"),
     )
 
     result = runner.invoke(app, ["run", "inspect README and summarize", "--model", "--session-id", "model-run"])
 
     assert result.exit_code == 0
-    assert '"action": "model_backed_turn"' in result.stdout
+    assert '"execution_mode": "model"' in result.stdout
+    assert "decision_strategy=model" in result.stdout
     assert "model executor output" in result.stdout
 
 
-def test_model_backed_path_loops_until_reviewer_clears_follow_up(monkeypatch):
+def test_model_backed_path_runs_one_tool_per_graph_iteration(monkeypatch):
+    from agentos.runtime.app import GraphModelDecisionStrategy, RuntimeDecision
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
     calls = {"count": 0}
 
-    def fake_run_turn(self, **kwargs):
+    def fake_decide(self, **kwargs):
         calls["count"] += 1
         if calls["count"] == 1:
-            return {
-                "planner_summary": "plan once",
-                "planner_steps": ["inspect"],
-                "executor_output": "executor output once",
-                "reviewer_summary": "needs follow up",
-                "reviewer_follow_up_needed": True,
-                "tool_results": [{"tool_name": "file_read", "summary": "read once", "payload": {}}],
-                "message_count": 2,
-            }
-        return {
-            "planner_summary": "plan twice",
-            "planner_steps": ["verify"],
-            "executor_output": "executor output twice",
-            "reviewer_summary": "looks good now",
-            "reviewer_follow_up_needed": False,
-            "tool_results": [{"tool_name": "test_run", "summary": "verified", "payload": {}}],
-            "message_count": 4,
-        }
+            return RuntimeDecision(action="use_tool", tool_name="file_read", tool_input={"path": "README.md"})
+        return RuntimeDecision(action="respond", response="executor output twice")
 
-    monkeypatch.setattr(ModelBackedAgentRuntime, "run_turn", fake_run_turn)
+    monkeypatch.setattr(GraphModelDecisionStrategy, "decide", fake_decide)
 
     result = runner.invoke(
         app,
@@ -345,29 +324,22 @@ def test_model_backed_path_loops_until_reviewer_clears_follow_up(monkeypatch):
     assert calls["count"] == 2
     assert '"iteration_count": 2' in result.stdout
     assert '"loop_status": "completed"' in result.stdout
-    assert '"reviewer_follow_up": "true"' not in result.stdout
+    assert '"tool_name": "file_read"' in result.stdout
     assert "executor output twice" in result.stdout
 
 
 def test_model_backed_path_stops_at_max_iterations(monkeypatch):
+    from agentos.runtime.app import GraphModelDecisionStrategy, RuntimeDecision
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
     calls = {"count": 0}
 
-    def fake_run_turn(self, **kwargs):
+    def fake_decide(self, **kwargs):
         calls["count"] += 1
-        return {
-            "planner_summary": f"plan {calls['count']}",
-            "planner_steps": ["inspect"],
-            "executor_output": f"executor output {calls['count']}",
-            "reviewer_summary": "still needs work",
-            "reviewer_follow_up_needed": True,
-            "tool_results": [],
-            "message_count": calls["count"] * 2,
-        }
+        return RuntimeDecision(action="use_tool", tool_name="file_read", tool_input={"path": "README.md"})
 
-    monkeypatch.setattr(ModelBackedAgentRuntime, "run_turn", fake_run_turn)
+    monkeypatch.setattr(GraphModelDecisionStrategy, "decide", fake_decide)
 
     result = runner.invoke(
         app,
@@ -381,53 +353,37 @@ def test_model_backed_path_stops_at_max_iterations(monkeypatch):
     assert '"pending_tasks": [' in result.stdout
 
 
-def test_model_backed_path_stops_when_reviewer_requests_follow_up_without_progress(monkeypatch):
+def test_model_backed_path_uses_deterministic_strategy_for_legacy_tasks(monkeypatch):
+    from agentos.runtime.app import GraphModelDecisionStrategy
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
-    calls = {"count": 0}
 
-    def fake_run_turn(self, **kwargs):
-        calls["count"] += 1
-        return {
-            "planner_summary": "same plan",
-            "planner_steps": ["inspect"],
-            "executor_output": "same executor output",
-            "reviewer_summary": "still needs follow up",
-            "reviewer_follow_up_needed": True,
-            "tool_results": [],
-            "message_count": calls["count"] * 2,
-        }
+    def fail_if_called(self, **kwargs):
+        raise AssertionError("legacy task should not call model decision")
 
-    monkeypatch.setattr(ModelBackedAgentRuntime, "run_turn", fake_run_turn)
+    monkeypatch.setattr(GraphModelDecisionStrategy, "decide", fail_if_called)
 
     result = runner.invoke(
         app,
-        ["run", "inspect README and summarize", "--model", "--session-id", "model-loop-no-progress", "--max-iterations", "5"],
+        ["run", "read: README.md", "--model", "--session-id", "model-legacy", "--max-iterations", "2"],
     )
 
     assert result.exit_code == 0
-    assert calls["count"] == 2
-    assert '"loop_status": "stopped:no_progress"' in result.stdout
-    assert '"iteration_count": 2' in result.stdout
+    assert '"execution_mode": "model"' in result.stdout
+    assert "decision_strategy=deterministic" in result.stdout
+    assert '"tool_name": "file_read"' in result.stdout
 
 
 def test_shell_uses_model_backed_mode_for_natural_language(monkeypatch):
+    from agentos.runtime.app import GraphModelDecisionStrategy, RuntimeDecision
     from agentos.runtime.model_backed import ModelBackedAgentRuntime
 
     monkeypatch.setattr(ModelBackedAgentRuntime, "is_configured", lambda self: True)
     monkeypatch.setattr(
-        ModelBackedAgentRuntime,
-        "run_turn",
-        lambda self, **kwargs: {
-            "planner_summary": "plan",
-            "planner_steps": ["inspect", "edit"],
-            "executor_output": "model shell output",
-            "reviewer_summary": "looks good",
-            "reviewer_follow_up_needed": False,
-            "tool_results": [],
-            "message_count": 2,
-        },
+        GraphModelDecisionStrategy,
+        "decide",
+        lambda self, **kwargs: RuntimeDecision(action="respond", response="model shell output"),
     )
 
     result = runner.invoke(

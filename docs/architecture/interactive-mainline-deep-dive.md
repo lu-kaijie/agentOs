@@ -443,7 +443,16 @@ fallback 不是历史遗留，而是产品策略的一部分。
 `src/agentos/context/models.py` 定义了几层长期记忆：
 
 - `recent_messages`
-  最近几条对话消息的结构化快照
+  最近对话消息的结构化快照。当前窗口已按真实模型测试调大，不再是早期 smoke test 的极小窗口。
+
+- `user_profile`
+  稳定用户画像，例如偏好语言、回答简短、文件内容类问题需要先读文件等。
+
+- `remembered_facts`
+  用户明确要求记住的事实，带 stable key、source、confidence、status 和时间戳。
+
+- `task_state`
+  当前目标、已完成动作、开放问题和活跃计划。
 
 - `working_memory`
   当前目标、约束、活跃计划、已完成动作、未决问题、会话摘要
@@ -474,11 +483,14 @@ fallback 不是历史遗留，而是产品策略的一部分。
 
 它的策略大致是：
 
-1. 从最近消息里提取工作目标、约束、问题和语言偏好。
-2. 从历史工具结果里提取 `ToolFact`。
-3. 从失败工具结果里提取 `FailureFact`。
-4. 从工具结果和 completed tasks 推导 `WorkspaceState`。
-5. 如果内容过大，压缩较老的 `recent_messages` 和 `tool_facts`。
+1. 通过 `StructuredMemoryExtractor` 生成 `MemoryDelta`。
+2. 在开启 `AGENTOS_MEMORY_MODEL_EXTRACTION=1` 时，优先用模型 tool/function output 抽取用户画像、显式事实和任务状态。
+3. 模型不可用或抽取失败时，回退到确定性抽取。
+4. 从历史工具结果里提取 `ToolFact`。
+5. 从失败工具结果里提取 `FailureFact`。
+6. 从工具结果和 completed tasks 推导 `WorkspaceState`。
+7. 以字段级 merge 方式更新 `user_profile`、`remembered_facts`、`task_state` 等层。
+8. 如果内容过大，压缩较老的 `recent_messages` 和 `tool_facts`。
 
 当前压缩触发条件主要有：
 
@@ -489,6 +501,8 @@ fallback 不是历史遗留，而是产品策略的一部分。
 策略上它不是“高级向量记忆”，而是更工程化的混合式压缩：
 
 - 先提炼结构化硬事实
+- 显式用户事实进入 `remembered_facts`
+- 用户偏好进入 `user_profile`
 - 再在必要时缩减层数和数量
 - 可选启用小模型做 semantic compression
 

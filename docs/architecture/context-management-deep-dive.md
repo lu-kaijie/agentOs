@@ -92,7 +92,7 @@ bundle 不单独持久化为独立文件，但会嵌进 turn state 的 `context_
 含义：
 
 - 最近保留的消息快照
-- 不是完整 transcript，只保留少量最近消息
+- 不是完整 transcript，但当前保留窗口已经按真实模型测试调大
 
 作用：
 
@@ -100,7 +100,8 @@ bundle 不单独持久化为独立文件，但会嵌进 turn state 的 `context_
 
 当前裁剪策略：
 
-- lifecycle 中最多保留最近 4 条
+- lifecycle 平时最多保留最近 24 条
+- 触发压缩后仍保留最近 12 条
 
 ### 3.2 `working_memory`
 
@@ -262,6 +263,10 @@ goal=修复 CLI 参数解析 | plan=补测试, 修代码 | tool_facts=3 | failur
 2. 收集最近消息
 3. 估算维护前大小 `before_size`
 4. 抽取：
+   - `MemoryDelta`
+   - `user_profile`
+   - `remembered_facts`
+   - `task_state`
    - `tool_facts`
    - `failure_memory`
    - `working_memory`
@@ -288,10 +293,10 @@ goal=修复 CLI 参数解析 | plan=补测试, 修代码 | tool_facts=3 | failur
 
 当前核心阈值在 [src/agentos/context/lifecycle.py](/home/mi/agentOs/src/agentos/context/lifecycle.py:31)：
 
-- `ACTIVE_THRESHOLD_CHARS = 900`
-- `LARGE_TOOL_OUTPUT_CHARS = 500`
+- `ACTIVE_THRESHOLD_CHARS = 24000`
+- `LARGE_TOOL_OUTPUT_CHARS = 6000`
 
-注意这里不是 token，而是字符数近似估计。它的定位是轻量、可解释的本地预算控制，不是精确 tokenizer。
+注意这里不是 token，而是字符数近似估计。当前预算已经从早期 smoke test 小窗口调高到更适合真实模型上下文的水平，但仍不是精确 tokenizer。
 
 ### 4.3 压缩判定
 
@@ -318,19 +323,44 @@ goal=修复 CLI 参数解析 | plan=补测试, 修代码 | tool_facts=3 | failur
 
 具体行为：
 
-- `recent_messages` 超过 4 条时，只保留最近 4 条
-- `tool_facts` 超过 3 条时，只保留最近 3 条
+- 平时 `recent_messages` 最多保留最近 24 条
+- 触发压缩后，`recent_messages` 仍保留最近 12 条
+- 平时 `tool_facts` 最多保留最近 20 条
+- 触发压缩后，`tool_facts` 仍保留最近 10 条
+- `remembered_facts` 最多保留最近 50 条
+- `failure_memory` 最多保留最近 12 条
 
 这部分逻辑在 [src/agentos/context/lifecycle.py](/home/mi/agentOs/src/agentos/context/lifecycle.py:82)。
 
 注意：
 
+- `user_profile`
+- `remembered_facts`
+- `task_state`
 - `working_memory`
 - `user_preferences`
 - `workspace_state`
 - `failure_memory`
 
 这些层默认不做激进删除，因为它们的密度更高、价值也更稳定。
+
+### 4.5 结构化记忆抽取
+
+`StructuredMemoryExtractor` 会在 turn 边界产出 `MemoryDelta`，再由 lifecycle manager 做字段级合并。
+
+抽取路径有两条：
+
+1. 模型结构化抽取
+   - 需要 `AGENTOS_MEMORY_MODEL_EXTRACTION=1`
+   - 通过 tool/function output 返回结构化 payload
+   - 适合抽取用户画像、显式事实、任务状态和修正事实
+
+2. 确定性抽取
+   - 模型未配置或模型抽取失败时使用
+   - 识别明显的中文偏好、简短回答偏好和“请记住...”类事实
+   - 输出同样的 `MemoryDelta` 形状
+
+模型抽取失败不会让用户 turn 失败；系统会记录 diagnostics，然后回退到确定性抽取。
 
 ## 5. Working Memory 是怎么抽取的
 
@@ -550,24 +580,24 @@ bundle 内会带 `budget_allocations`，来源于 role-specific 策略。
 
 planner 典型预算：
 
-- `working_memory`: 260
-- `user_preferences`: 80
-- `recent_messages`: 120
-- `workspace_state`: 100
+- `working_memory`: 1200
+- `user_preferences`: 400
+- `recent_messages`: 2400
+- `workspace_state`: 600
 
 reviewer 典型预算：
 
-- `working_memory`: 180
-- `tool_facts`: 220
-- `failure_memory`: 120
-- `recent_messages`: 80
+- `working_memory`: 1000
+- `tool_facts`: 1600
+- `failure_memory`: 600
+- `recent_messages`: 1600
 
 executor 典型预算：
 
-- `working_memory`: 180
-- `tool_facts`: 180
-- `workspace_state`: 160
-- `recent_messages`: 80
+- `working_memory`: 1200
+- `tool_facts`: 1600
+- `workspace_state`: 1000
+- `recent_messages`: 2400
 
 这些数字当前更像“软预算说明”，主要用于解释系统优先级，而不是精确 token 剪枝器。
 

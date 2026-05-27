@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass
 from collections.abc import Iterator
 
+from langchain_core.messages import AIMessage, HumanMessage
+
 from agentos.config import Settings
 from agentos.coordination import CoordinationManager
 from agentos.context import ContextManager
@@ -141,6 +143,8 @@ class AgentOsApp:
         session_id: str,
         approve: bool = False,
         max_iterations: int = 5,
+        execution_mode: str = "",
+        approval_response: str = "",
         state_override: dict[str, object] | None = None,
     ) -> dict[str, object]:
         state = self.runtime.run_task(
@@ -148,6 +152,8 @@ class AgentOsApp:
             session_id=session_id,
             approved=approve,
             max_iterations=max_iterations,
+            execution_mode=execution_mode,
+            approval_response=approval_response,
             state_override=state_override,
         )
         self.session_manager.record_turn(
@@ -156,7 +162,64 @@ class AgentOsApp:
             state=state,
             workspace_dir=str(self.settings.workspace_dir),
         )
+        self._record_context_messages(session_id=session_id, user_task=task, state=state)
         return state
+
+    def _record_context_messages(
+        self,
+        *,
+        session_id: str,
+        user_task: str,
+        state: dict[str, object],
+    ) -> None:
+        try:
+            messages = self.context_manager.load_session(session_id)
+        except FileNotFoundError:
+            messages = []
+        final_output = self._context_assistant_output(state)
+        if not final_output:
+            final_output = str(state.get("last_result", "")).strip()
+        messages = [
+            *messages,
+            HumanMessage(content=user_task),
+            AIMessage(content=final_output or "(no response)"),
+        ]
+        self.context_manager.compact_messages(
+            session_id,
+            messages,
+            max_chars=24000,
+            keep_last=24,
+        )
+
+    def _context_assistant_output(self, state: dict[str, object]) -> str:
+        step_outputs = [
+            str(item).strip()
+            for item in state.get("step_outputs", [])
+            if str(item).strip()
+        ]
+        if step_outputs:
+            return step_outputs[-1]
+        return str(state.get("final_output", "")).strip()
+
+    def run_graph_model_session_task(
+        self,
+        task: str,
+        *,
+        session_id: str,
+        approve: bool = False,
+        max_iterations: int = 5,
+        state_override: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Run a model-backed task through the shared LangGraph loop."""
+
+        return self.run_session_task(
+            task,
+            session_id=session_id,
+            approve=approve,
+            max_iterations=max_iterations,
+            execution_mode="model",
+            state_override=state_override,
+        )
 
     def run_model_session_task(
         self,
@@ -444,6 +507,8 @@ class AgentOsApp:
         session_id: str,
         approve: bool = False,
         max_iterations: int = 5,
+        execution_mode: str = "deterministic",
+        approval_response: str = "",
         state_override: dict[str, object] | None = None,
     ) -> Iterator[dict[str, object]]:
         final_state: dict[str, object] | None = None
@@ -452,6 +517,8 @@ class AgentOsApp:
             session_id=session_id,
             approved=approve,
             max_iterations=max_iterations,
+            execution_mode=execution_mode,
+            approval_response=approval_response,
             state_override=state_override,
         ):
             final_state = state
@@ -471,6 +538,8 @@ class AgentOsApp:
         *,
         task: str = "",
         approve: bool = False,
+        execution_mode: str = "deterministic",
+        approval_response: str = "",
         max_iterations: int = 5,
         poll_iterations: int = 1,
         poll_interval: float = 0.2,
@@ -484,11 +553,14 @@ class AgentOsApp:
                     time.sleep(poll_interval)
         state_override, previous_task = self.session_manager.build_resume_state(session_id)
         next_task = task or previous_task or "describe current status"
+        selected_execution_mode = execution_mode or str(state_override.get("execution_mode", "deterministic"))
         state = self.run_session_task(
             next_task,
             session_id=session_id,
             approve=approve,
             max_iterations=max_iterations,
+            execution_mode=selected_execution_mode,
+            approval_response=approval_response,
             state_override=state_override,
         )
         try:
@@ -500,3 +572,37 @@ class AgentOsApp:
         state["resume_poll_iterations"] = poll_iterations
         state["resume_from_loop_status"] = last_session.latest_loop_status
         return state
+
+    def approve_pending_approval(self, session_id: str, *, max_iterations: int = 5) -> dict[str, object]:
+        """Approve a persisted pending approval and resume execution."""
+
+        state_override, previous_task = self.session_manager.build_resume_state(session_id)
+        if not state_override.get("pending_approval"):
+            raise ValueError(f"Session '{session_id}' has no pending approval")
+        execution_mode = str(state_override.get("execution_mode", "deterministic"))
+        return self.run_session_task(
+            previous_task or "describe current status",
+            session_id=session_id,
+            approve=True,
+            max_iterations=max_iterations,
+            execution_mode=execution_mode,
+            approval_response="approve",
+            state_override=state_override,
+        )
+
+    def reject_pending_approval(self, session_id: str, *, max_iterations: int = 5) -> dict[str, object]:
+        """Reject a persisted pending approval and resume execution."""
+
+        state_override, previous_task = self.session_manager.build_resume_state(session_id)
+        if not state_override.get("pending_approval"):
+            raise ValueError(f"Session '{session_id}' has no pending approval")
+        execution_mode = str(state_override.get("execution_mode", "deterministic"))
+        return self.run_session_task(
+            previous_task or "describe current status",
+            session_id=session_id,
+            approve=False,
+            max_iterations=max_iterations,
+            execution_mode=execution_mode,
+            approval_response="reject",
+            state_override=state_override,
+        )

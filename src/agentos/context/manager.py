@@ -80,7 +80,7 @@ class ContextManager:
         state: dict[str, object],
         workspace_dir: Path,
         role: str = "executor",
-        max_chars: int = 600,
+        max_chars: int = 8000,
     ) -> dict[str, object]:
         """Build an inspectable task-aware context bundle through policy runtime."""
 
@@ -102,7 +102,7 @@ class ContextManager:
         role: str,
         state: dict[str, object],
         workspace_dir: Path,
-        max_chars: int = 600,
+        max_chars: int = 8000,
         skill_mode: Literal["catalog", "matched"] = "matched",
         trigger_reason: str = "prepare_context",
     ) -> tuple[dict[str, object], object, LayeredMemory, object]:
@@ -187,7 +187,7 @@ class ContextManager:
         content = content[:100]
         return f"- {message.type}: {content}"
 
-    def render_bundle(self, bundle: dict[str, object], *, max_chars: int = 600) -> str:
+    def render_bundle(self, bundle: dict[str, object], *, max_chars: int = 8000) -> str:
         """Render a compact text preview of a structured context bundle."""
 
         lines = [
