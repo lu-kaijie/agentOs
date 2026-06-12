@@ -1,43 +1,12 @@
-# Python bytecode
+config.yaml
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
+*.pyc
 .venv/
-.venv-agentos/
-venv/
-
-# Build artifacts
-build/
-dist/
 *.egg-info/
-
-# Test and coverage
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Type checker / linter caches
-.mypy_cache/
-.ruff_cache/
-
-# IDE / editor
+dist/
+build/
 .idea/
 .vscode/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Local environment files
-.env
-.env.local
-
-# Runtime output
-*.log
-tmp/
-temp/
-
-# Local runtime state
 .agentos/
+.claude/
+CLAUDE.md

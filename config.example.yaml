@@ -1,0 +1,29 @@
+providers:
+  - name: anthropic-official
+    protocol: anthropic
+    base_url: https://api.anthropic.com
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: claude-sonnet-4-20250514
+    thinking: true
+
+  # OpenAI 示例配置，按需启用。
+  # - name: openai-official
+  #   protocol: openai
+  #   base_url: https://api.openai.com/v1
+  #   api_key: "${OPENAI_API_KEY}"
+  #   model: gpt-4o
+
+permission_mode: default
+
+mcp_servers:
+  # MCP Server 示例配置，按需启用。
+  # - name: context7
+  #   command: npx
+  #   args: ["-y", "@upstash/context7-mcp"]
+
+hooks: []
+
+enable_fork: false
+enable_verification_agent: false
+teammate_mode: ""
+enable_coordinator_mode: false
